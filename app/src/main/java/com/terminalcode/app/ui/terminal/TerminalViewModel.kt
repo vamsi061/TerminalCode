@@ -36,7 +36,11 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
     val activeTabId: StateFlow<String?> = _activeTabId.asStateFlow()
 
     init {
-        createNewTab()
+        try {
+            createNewTab()
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to create initial terminal session", e)
+        }
     }
 
     /**
@@ -89,90 +93,84 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
      * Creates a new terminal tab with a real PTY-backed shell session.
      */
     fun createNewTab(): TerminalTab {
-        val shell = findShell()
-        val env = createEnvironment(shell)
-        val args = arrayOf(shell)
+        try {
+            val shell = findShell()
+            val env = createEnvironment(shell)
+            val args = arrayOf(shell)
 
-        val session = TerminalSession(
-            shell,
-            null,
-            args,
-            env,
-            null,
-            object : TerminalSessionClient {
-                override fun onTextChanged(changedSession: TerminalSession?) {
-                    // TerminalView handles rendering
-                }
+            val session = TerminalSession(
+                shell,
+                null,
+                args,
+                env,
+                null,
+                object : TerminalSessionClient {
+                    override fun onTextChanged(changedSession: TerminalSession?) {
+                        // TerminalView handles rendering
+                    }
 
-                override fun onTitleChanged(changedSession: TerminalSession?) {
-                    val title = changedSession?.getTitle() ?: "Terminal"
-                    _tabs.value = _tabs.value.map { tab ->
-                        if (tab.session == changedSession) tab.copy(title = title)
-                        else tab
+                    override fun onTitleChanged(changedSession: TerminalSession?) {
+                        val title = changedSession?.getTitle() ?: "Terminal"
+                        _tabs.value = _tabs.value.map { tab ->
+                            if (tab.session == changedSession) tab.copy(title = title)
+                            else tab
+                        }
+                    }
+
+                    override fun onSessionFinished(finishedSession: TerminalSession?) {
+                        Log.d(TAG, "Session finished")
+                        _tabs.value = _tabs.value.map { tab ->
+                            if (tab.session == finishedSession) tab.copy(isRunning = false)
+                            else tab
+                        }
+                    }
+
+                    override fun onCopyTextToClipboard(session: TerminalSession?, text: String?) { }
+                    override fun onPasteTextFromClipboard(session: TerminalSession?) { }
+                    override fun onBell(session: TerminalSession?) { }
+                    override fun onColorsChanged(session: TerminalSession?) { }
+                    override fun onTerminalCursorStateChange(state: Boolean) { }
+                    override fun getTerminalCursorStyle(): Int? = null
+
+                    override fun logInfo(tag: String?, message: String?) {
+                        Log.d(tag ?: TAG, message ?: "")
+                    }
+                    override fun logWarn(tag: String?, message: String?) {
+                        Log.w(tag ?: TAG, message ?: "")
+                    }
+                    override fun logDebug(tag: String?, message: String?) {
+                        Log.d(tag ?: TAG, message ?: "")
+                    }
+                    override fun logError(tag: String?, message: String?) {
+                        Log.e(tag ?: TAG, message ?: "")
+                    }
+                    override fun logVerbose(tag: String?, message: String?) { }
+                    override fun logStackTraceWithMessage(tag: String?, message: String?, e: Exception?) {
+                        Log.e(tag ?: TAG, "$message", e)
+                    }
+                    override fun logStackTrace(tag: String?, e: Exception?) {
+                        Log.e(tag ?: TAG, "Stack trace", e)
                     }
                 }
+            )
 
-                override fun onSessionFinished(finishedSession: TerminalSession?) {
-                    Log.d(TAG, "Session finished")
-                    _tabs.value = _tabs.value.map { tab ->
-                        if (tab.session == finishedSession) tab.copy(isRunning = false)
-                        else tab
-                    }
-                }
+            val tab = TerminalTab(
+                session = session,
+                isRunning = true
+            )
 
-                override fun onCopyTextToClipboard(session: TerminalSession?, text: String?) {
-                    // Handled by TerminalView
-                }
+            _tabs.value = _tabs.value + tab
+            _activeTabId.value = tab.id
+            return tab
 
-                override fun onPasteTextFromClipboard(session: TerminalSession?) {
-                    // Handled by TerminalView
-                }
-
-                override fun onBell(session: TerminalSession?) { }
-
-                override fun onColorsChanged(session: TerminalSession?) { }
-
-                override fun onTerminalCursorStateChange(state: Boolean) { }
-
-                override fun getTerminalCursorStyle(): Int? = null
-
-                override fun logInfo(tag: String?, message: String?) {
-                    Log.d(tag ?: TAG, message ?: "")
-                }
-
-                override fun logWarn(tag: String?, message: String?) {
-                    Log.w(tag ?: TAG, message ?: "")
-                }
-
-                override fun logDebug(tag: String?, message: String?) {
-                    Log.d(tag ?: TAG, message ?: "")
-                }
-
-                override fun logError(tag: String?, message: String?) {
-                    Log.e(tag ?: TAG, message ?: "")
-                }
-
-                override fun logVerbose(tag: String?, message: String?) { }
-
-                override fun logStackTraceWithMessage(tag: String?, message: String?, e: Exception?) {
-                    Log.e(tag ?: TAG, "$message", e)
-                }
-
-                override fun logStackTrace(tag: String?, e: Exception?) {
-                    Log.e(tag ?: TAG, "Stack trace", e)
-                }
-            }
-        )
-
-        val tab = TerminalTab(
-            session = session,
-            isRunning = true
-        )
-
-        _tabs.value = _tabs.value + tab
-        _activeTabId.value = tab.id
-
-        return tab
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to create terminal session", e)
+            // Return a placeholder tab so the UI doesn't crash
+            val fallback = TerminalTab(title = "Error", isRunning = false)
+            _tabs.value = _tabs.value + fallback
+            _activeTabId.value = fallback.id
+            return fallback
+        }
     }
 
     fun switchTab(tabId: String) {

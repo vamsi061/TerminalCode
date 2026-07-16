@@ -123,7 +123,11 @@ fun TerminalScreen(
                                 // attachSession() -> updateSize() -> session.updateSize() -> initializeEmulator()
                                 // creating the PTY via JNI. The emulator will be properly resized
                                 // when the view layout happens (onLayout -> updateSize).
-                                attachSession(session)
+                                try {
+                                    attachSession(session)
+                                } catch (e: Exception) {
+                                    android.util.Log.e("TerminalScreen", "Failed to attach session", e)
+                                }
                             }
                         },
                         modifier = Modifier.fillMaxSize()

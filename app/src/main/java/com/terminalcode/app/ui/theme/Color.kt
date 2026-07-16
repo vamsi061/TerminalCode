@@ -14,7 +14,7 @@ val DarkAccentMuted = Color(0xFF1F6FEB)
 val DarkSuccess = Color(0xFF3FB950)
 val DarkWarning = Color(0xFFD29922)
 val DarkError = Color(0xFFFF7B72)
-val DarkErrorContainer = Color(0xFFFF7B7222)
+val DarkErrorContainer = Color(0x22FF7B72)
 
 // Light Theme Colors (GitHub Light inspired)
 val LightBackground = Color(0xFFF6F8FA)
