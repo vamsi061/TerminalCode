@@ -55,15 +55,38 @@ class TerminalSession(
 
     companion object {
         private const val TAG = "TerminalSession"
+        // Linux shell paths - prioritized: bash first, then zsh, then sh
         private val SHELL_PATHS = listOf(
-            "/system/bin/sh",
-            "/system/bin/bash",
+            // Check $SHELL env var first (user's preferred shell)
+            System.getenv("SHELL") ?: "",
+            // Termux bash (most common on Android)
             "/data/data/com.termux/files/usr/bin/bash",
             "/data/data/com.termux/files/usr/bin/zsh",
             "/data/data/com.termux/files/usr/bin/fish",
-            "/bin/sh",
-            "/bin/bash"
-        )
+            // Standard Linux paths (for PRoot environments)
+            "/bin/bash",
+            "/usr/bin/bash",
+            "/bin/zsh",
+            "/usr/bin/zsh",
+            // Android system paths (fallback)
+            "/system/bin/bash",
+            "/system/bin/sh",
+            "/bin/sh"
+        ).filter { it.isNotEmpty() }
+
+        // Linux PATH for full terminal capability
+        private val LINUX_PATH = listOf(
+            "/usr/local/sbin",
+            "/usr/local/bin",
+            "/usr/sbin",
+            "/usr/bin",
+            "/sbin",
+            "/bin",
+            "/data/data/com.termux/files/usr/bin",
+            "/data/data/com.termux/files/usr/bin/applets",
+            "/system/bin",
+            "/system/xbin"
+        ).joinToString(":")
     }
 
     /**
@@ -83,16 +106,6 @@ class TerminalSession(
                 setupPty()
                 spawnShell()
                 startIoThreads()
-
-                // Show welcome message with pwd
-                val homeDir = System.getenv("HOME") ?: "/"
-                _output.value += "\r\n\u001b[32mTerminalCode v1.0.0\u001b[0m\r\n"
-                _output.value += "\u001b[36mWorking directory: $homeDir\u001b[0m\r\n"
-                _output.value += "\r\n"
-
-                // Send initial commands to show pwd
-                writeInput("cd $homeDir\n")
-                writeInput("pwd\n")
             } catch (e: Exception) {
                 _output.value += "\r\n\u001b[31mError: ${e.message}\u001b[0m\r\n"
                 running.set(false)
@@ -145,40 +158,44 @@ class TerminalSession(
 
     /**
      * Spawns a shell process connected to the slave side of the PTY.
-     * Searches for available shells and falls back to available options.
+     * Detects shell type and applies appropriate flags for a full Linux experience.
      */
     private fun spawnShell() {
         val shellToUse = findShell()
+        val isBashOrZsh = shellToUse.contains("bash") || shellToUse.contains("zsh")
         val pb = ProcessBuilder()
 
-        // Set the slave PTY as the stdin/stdout/stderr
         try {
-            val slaveInputStream = FileInputStream(slaveFd!!)
-            val slaveOutputStream = FileOutputStream(slaveFd!!)
-
             pb.redirectInput(ProcessBuilder.Redirect.PIPE)
             pb.redirectOutput(ProcessBuilder.Redirect.PIPE)
             pb.redirectErrorStream(true)
 
-            // Set environment variables for proper terminal behavior
+            // Set comprehensive Linux environment
             val env = pb.environment()
             env["TERM"] = "xterm-256color"
-            env["HOME"] = System.getenv("HOME") ?: "/"
+            env["HOME"] = System.getenv("HOME") ?: "/root"
             env["SHELL"] = shellToUse
-            env["USER"] = System.getenv("USER") ?: "shell"
-            env["PATH"] = System.getenv("PATH")
-                ?: "/system/bin:/system/xbin:/data/data/com.termux/files/usr/bin"
+            env["USER"] = System.getenv("USER") ?: "u0_a" + android.os.Process.myUid()
+            env["LOGNAME"] = env["USER"]
+            env["PATH"] = System.getenv("PATH") ?: LINUX_PATH
+            env["LANG"] = "en_US.UTF-8"
+            env["LC_ALL"] = "en_US.UTF-8"
+            env["EDITOR"] = "nano"
+            env["PAGER"] = "less"
 
-            // Start without --login flag (Android /system/bin/sh doesn't support it)
-            pb.command(shellToUse)
+            // Use --login for bash/zsh to source profile, no flag for others
+            if (isBashOrZsh) {
+                pb.command(shellToUse, "--login")
+            } else {
+                pb.command(shellToUse)
+            }
 
             shellProcess = pb.start()
 
-            // Connect shell I/O to PTY using separate threads
             val processInput = shellProcess!!.outputStream
             val processOutput = shellProcess!!.inputStream
 
-            // Pipe: PTY slave input -> process output (process reads from PTY)
+            // Pipe: PTY slave input -> process output
             Thread {
                 try {
                     val buffer = ByteArray(4096)
@@ -189,16 +206,14 @@ class TerminalSession(
                         processInput.write(buffer, 0, read)
                         processInput.flush()
                     }
-                } catch (e: IOException) {
-                    // Stream closed or session ended
-                }
+                } catch (e: IOException) { }
             }.apply {
                 isDaemon = true
                 name = "pty-to-process"
                 start()
             }
 
-            // Pipe: Process output -> PTY master (we read from process and write to master)
+            // Pipe: Process output -> PTY master
             outputThread = Thread {
                 try {
                     val buffer = ByteArray(4096)
@@ -208,14 +223,10 @@ class TerminalSession(
                         if (read <= 0) break
                         masterOutputStream.write(buffer, 0, read)
                         masterOutputStream.flush()
-
-                        // Emit to output flow for WebView
                         val text = String(buffer, 0, read, Charsets.UTF_8)
                         _output.value += text
                     }
-                } catch (e: IOException) {
-                    // Stream closed or session ended
-                }
+                } catch (e: IOException) { }
             }.apply {
                 isDaemon = true
                 name = "process-output"
@@ -228,7 +239,8 @@ class TerminalSession(
     }
 
     /**
-     * Searches for an available shell on the system.
+     * Finds the best available shell. Checks $SHELL first,
+     * then looks for bash in standard Linux and Termux paths.
      */
     private fun findShell(): String {
         for (path in SHELL_PATHS) {
@@ -237,9 +249,7 @@ class TerminalSession(
                 if (file.exists() && file.canExecute()) {
                     return path
                 }
-            } catch (e: Exception) {
-                continue
-            }
+            } catch (e: Exception) { continue }
         }
         return shellPath
     }
