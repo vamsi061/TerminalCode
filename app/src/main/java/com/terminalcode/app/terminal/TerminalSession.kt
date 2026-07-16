@@ -1,7 +1,5 @@
 package com.terminalcode.app.terminal
 
-import android.system.Os
-import android.system.OsConstants
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.CoroutineScope
@@ -10,24 +8,24 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import java.io.FileDescriptor
+import java.io.IOException
+import java.io.OutputStream
+import java.io.InputStream
+import java.util.UUID
 import java.util.concurrent.BlockingQueue
 import java.util.concurrent.LinkedBlockingQueue
-import java.io.FileInputStream
-import java.io.FileOutputStream
-import java.io.IOException
-import java.util.UUID
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
- * Terminal session using PTY (pseudo-terminal).
+ * Terminal session using simple PIPE approach.
  *
- * Architecture (inspired by Termux):
- * 1. Open PTY master (/dev/ptmx) → grantpt/unlockpt → get slave path
- * 2. Open PTY slave device (needed for PTY to function)
- * 3. Spawn shell with stdin/stdout/stderr redirected to the slave device
- * 4. Read shell output from PTY master → display in WebView
- * 5. Write user input to PTY master → goes to shell via slave
+ * No PTY complexity - just spawn bash with -i flag over PIPEs:
+ * - Write user input to process stdin
+ * - Read process stdout (merged with stderr) and display
+ *
+ * bash -i forces interactive mode so prompts and job control work
+ * even though stdin/stdout are PIPEs.
  */
 class TerminalSession(
     val sessionId: String = UUID.randomUUID().toString(),
@@ -37,11 +35,8 @@ class TerminalSession(
     val output: StateFlow<String> = _output.asStateFlow()
     private val _isRunning = MutableStateFlow(false)
     val isRunning: StateFlow<Boolean> = _isRunning.asStateFlow()
-    private val inputQueue: BlockingQueue<ByteArray> = LinkedBlockingQueue()
 
-    private var masterFd: FileDescriptor? = null
-    private var slaveFd: FileDescriptor? = null
-    private var slavePath: String? = null
+    private val inputQueue: BlockingQueue<ByteArray> = LinkedBlockingQueue()
     private var shellProcess: Process? = null
     private var outputReader: Thread? = null
     private var inputWriter: Thread? = null
@@ -72,14 +67,17 @@ class TerminalSession(
         if (running.get()) return
         running.set(true)
         _isRunning.value = true
-        _output.value = "Starting terminal...\r\n"
+        _output.value = ""
 
         job = CoroutineScope(Dispatchers.IO + SupervisorJob()).launch {
             try {
-                setupPty()
                 spawnShell()
                 startThreads()
-                _output.value += "Terminal ready.\r\n"
+                // Send an initial newline + echo to force the shell to produce output
+                // This proves the I/O pipeline is working
+                inputQueue.offer("\n".toByteArray())
+                Thread.sleep(200)
+                inputQueue.offer("echo '[Terminal ready]'\n".toByteArray())
             } catch (e: Exception) {
                 _output.value += "\r\n\u001b[31mError: ${e.message}\u001b[0m\r\n"
                 running.set(false)
@@ -88,56 +86,15 @@ class TerminalSession(
         }
     }
 
-    /**
-     * Creates a PTY pair (master + slave) using Android's Os API.
-     */
-    private fun setupPty() {
-        try {
-            // 1. Open PTY master
-            masterFd = Os.open("/dev/ptmx",
-                OsConstants.O_RDWR or OsConstants.O_CLOEXEC, 0)
-
-            // 2. grantpt - grant access to slave
-            val osClass = Os::class.java
-            osClass.getMethod("grantpt", FileDescriptor::class.java)
-                .invoke(null, masterFd)
-
-            // 3. unlockpt - unlock the slave
-            osClass.getMethod("unlockpt", FileDescriptor::class.java)
-                .invoke(null, masterFd)
-
-            // 4. ptsname - get slave device path
-            slavePath = osClass.getMethod("ptsname", FileDescriptor::class.java)
-                .invoke(null, masterFd) as String
-
-            if (slavePath == null || slavePath!!.isEmpty()) {
-                throw IOException("Failed to get PTY slave name")
-            }
-
-            // 5. Open slave device (critical - PTY needs both ends open)
-            slaveFd = Os.open(slavePath!!,
-                OsConstants.O_RDWR or OsConstants.O_CLOEXEC, 0)
-
-        } catch (e: Exception) {
-            throw IOException("PTY setup failed: ${e.message}", e)
-        }
-    }
-
-    /**
-     * Spawns shell with stdin/stdout/stderr connected to the PTY slave device.
-     * This gives the shell a real TTY - it will show a prompt, support job control, etc.
-     */
     private fun spawnShell() {
         val shellToUse = findShell()
         val pb = ProcessBuilder()
 
         try {
-            val slaveFile = java.io.File(slavePath!!)
-
-            // Connect shell's I/O directly to PTY slave device
-            pb.redirectInput(ProcessBuilder.Redirect.from(slaveFile))
-            pb.redirectOutput(ProcessBuilder.Redirect.to(slaveFile))
-            pb.redirectErrorStream(true) // stderr -> stdout (both go to slave)
+            // Use PIPEs for stdin/stdout/stderr
+            pb.redirectInput(ProcessBuilder.Redirect.PIPE)
+            pb.redirectOutput(ProcessBuilder.Redirect.PIPE)
+            pb.redirectErrorStream(true) // Merge stderr into stdout
 
             // Set environment
             val env = pb.environment()
@@ -148,11 +105,10 @@ class TerminalSession(
             env["LOGNAME"] = System.getenv("USER") ?: "shell"
             env["LANG"] = "en_US.UTF-8"
             env["PATH"] = System.getenv("PATH") ?: LINUX_PATH
+            env["PS1"] = "\\[\\e[32m\\]\\u@\\h\\[\\e[0m\\]:\\[\\e[34m\\]\\w\\[\\e[0m\\]\\$ "
 
-            // Build command
-            val cmdArgs = mutableListOf(shellToUse)
-            pb.command(cmdArgs)
-
+            // Force interactive mode - bash will show prompt and accept input
+            pb.command(shellToUse, "-i")
             shellProcess = pb.start()
 
         } catch (e: Exception) {
@@ -169,48 +125,45 @@ class TerminalSession(
         return shellPath
     }
 
-    /**
-     * Starts I/O threads:
-     * - outputReader: reads shell output from PTY master → sends to StateFlow
-     * - inputWriter: reads user input from channel → writes to PTY master
-     */
     private fun startThreads() {
-        val masterIn = FileInputStream(masterFd!!)
-        val masterOut = FileOutputStream(masterFd!!)
+        val processIn: OutputStream = shellProcess!!.outputStream
+        val processOut: InputStream = shellProcess!!.inputStream
 
-        // Read shell output from PTY master
+        // Read shell output from process stdout -> StateFlow
         outputReader = Thread {
             try {
                 val buf = ByteArray(4096)
                 while (running.get()) {
-                    val n = masterIn.read(buf)
+                    val n = processOut.read(buf)
                     if (n <= 0) break
                     val text = String(buf, 0, n, Charsets.UTF_8)
                     _output.value += text
+                    // Yield to allow other threads to process
+                    Thread.yield()
                 }
             } catch (e: IOException) {
                 // Silently exit when session stops
             }
         }.apply {
             isDaemon = true
-            name = "pty-output-reader"
+            name = "shell-output-reader"
             start()
         }
 
-        // Write user input to PTY master
+        // Write user input to process stdin
         inputWriter = Thread {
             try {
                 while (running.get()) {
                     val data = inputQueue.take()
-                    masterOut.write(data)
-                    masterOut.flush()
+                    processIn.write(data)
+                    processIn.flush()
                 }
             } catch (e: Exception) {
-                // Channel closed, session stopping
+                // Clean exit
             }
         }.apply {
             isDaemon = true
-            name = "pty-input-writer"
+            name = "shell-input-writer"
             start()
         }
     }
@@ -225,19 +178,13 @@ class TerminalSession(
         inputQueue.offer(data)
     }
 
+    private var cols: Int = 80
+    private var rows: Int = 24
+
     fun resize(cols: Int, rows: Int) {
-        try {
-            if (masterFd != null) {
-                val TIOCSWINSZ = 0x5414
-                val winsize = java.nio.ByteBuffer.allocate(8)
-                    .order(java.nio.ByteOrder.LITTLE_ENDIAN)
-                    .putShort(rows.toShort()).putShort(cols.toShort())
-                    .putShort(0).putShort(0).array()
-                Os::class.java.getMethod("ioctl", FileDescriptor::class.java,
-                    Int::class.java, ByteArray::class.java)
-                    .invoke(null, masterFd!!, TIOCSWINSZ, winsize)
-            }
-        } catch (e: Exception) { }
+        this.cols = cols
+        this.rows = rows
+        // No PTY to resize in PIPE mode, but we track the size
     }
 
     fun clearOutput() { _output.value = "" }
@@ -249,13 +196,18 @@ class TerminalSession(
     fun stop() {
         running.set(false)
         _isRunning.value = false
-        // BlockingQueue doesn't need explicit close - interrupt handles it
         try { outputReader?.interrupt() } catch (_: Exception) {}
         try { inputWriter?.interrupt() } catch (_: Exception) {}
-        try { shellProcess?.destroy(); shellProcess?.waitFor(3, java.util.concurrent.TimeUnit.SECONDS); shellProcess?.destroyForcibly() } catch (_: Exception) {}
-        try { if (slaveFd != null) Os.close(slaveFd!!) } catch (_: Exception) {}
-        try { if (masterFd != null) Os.close(masterFd!!) } catch (_: Exception) {}
-        slaveFd = null; masterFd = null; shellProcess = null; job?.cancel(); job = null
+        try {
+            shellProcess?.let { p ->
+                p.destroy()
+                p.waitFor(3, TimeUnit.SECONDS)
+                p.destroyForcibly()
+            }
+        } catch (_: Exception) {}
+        shellProcess = null
+        job?.cancel()
+        job = null
         _output.value += "\r\n\u001b[33m[Session terminated]\u001b[0m\r\n"
     }
 }
