@@ -108,6 +108,15 @@
         term.open(container);
         fitAddon.fit();
 
+        // Focus terminal on load for keyboard input
+        setTimeout(() => {
+            term.focus();
+            // Send focus notification to Android
+            if (window.TerminalBridge) {
+                // Trigger a keystroke to activate keyboard
+            }
+        }, 500);
+
         // ============================================================
         // Android Bridge Interface
         // ============================================================
@@ -271,15 +280,17 @@
             }
         });
 
-        // Handle touch events for mobile
-        let lastTouchEnd = 0;
-        container.addEventListener('touchend', (event) => {
-            const now = Date.now();
-            if (now - lastTouchEnd <= 300) {
-                event.preventDefault();
-            }
-            lastTouchEnd = now;
-        }, false);
+        // Handle touch events for mobile - improves keyboard interaction
+        container.addEventListener('click', () => {
+            term.focus();
+        });
+
+        container.addEventListener('touchstart', () => {
+            // Focus terminal on touch and notify Android to show keyboard
+            term.focus();
+            // Send a small input to trigger keyboard
+            sendToAndroid('');
+        }, { passive: true });
 
         // ============================================================
         // Initialization Complete

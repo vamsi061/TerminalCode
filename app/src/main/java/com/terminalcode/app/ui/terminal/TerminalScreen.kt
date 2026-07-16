@@ -2,7 +2,10 @@ package com.terminalcode.app.ui.terminal
 
 import android.annotation.SuppressLint
 import android.graphics.Color
+import android.view.MotionEvent
+import android.view.View
 import android.view.ViewGroup
+import android.view.inputmethod.InputMethodManager
 import android.webkit.WebChromeClient
 import android.webkit.WebView
 import android.webkit.WebViewClient
@@ -12,7 +15,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Keyboard
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -154,18 +156,6 @@ private fun TerminalTabBar(
             )
         }
 
-        // Keyboard toggle button
-        IconButton(
-            onClick = { /* Show keyboard toggle */ },
-            modifier = Modifier.size(28.dp)
-        ) {
-            Icon(
-                imageVector = Icons.Default.Keyboard,
-                contentDescription = "Toggle keyboard",
-                tint = DarkTextPrimary,
-                modifier = Modifier.size(18.dp)
-            )
-        }
     }
 }
 
@@ -185,8 +175,9 @@ private fun TerminalWebView(
                     ViewGroup.LayoutParams.MATCH_PARENT,
                     ViewGroup.LayoutParams.MATCH_PARENT
                 )
+                isFocusable = true
+                isFocusableInTouchMode = true
 
-                // Configure WebView
                 settings.javaScriptEnabled = true
                 settings.domStorageEnabled = true
                 settings.allowFileAccess = true
@@ -194,31 +185,41 @@ private fun TerminalWebView(
                 settings.setSupportMultipleWindows(false)
                 settings.javaScriptCanOpenWindowsAutomatically = false
                 settings.mediaPlaybackRequiresUserGesture = false
-
-                // Performance settings
                 settings.cacheMode = android.webkit.WebSettings.LOAD_NO_CACHE
-                settings.setRenderPriority(android.webkit.WebSettings.RenderPriority.HIGH)
                 settings.layoutAlgorithm = android.webkit.WebSettings.LayoutAlgorithm.NARROW_COLUMNS
                 settings.useWideViewPort = true
                 settings.loadWithOverviewMode = true
-
-                // Background color
                 setBackgroundColor(Color.TRANSPARENT)
 
-                // Add JavaScript interface
                 addJavascriptInterface(bridge, TerminalWebViewBridge.INTERFACE_NAME)
+
+                // Show soft keyboard when terminal is tapped
+                setOnTouchListener { v, event ->
+                    if (event.action == MotionEvent.ACTION_UP) {
+                        v.requestFocus()
+                        val imm = v.context.getSystemService(android.content.Context.INPUT_METHOD_SERVICE) as InputMethodManager
+                        imm.showSoftInput(v, InputMethodManager.SHOW_IMPLICIT)
+                        // Focus xterm.js terminal
+                        evaluateJavascript("setTimeout(() => { term.focus(); }, 100);", null)
+                    }
+                    true
+                }
 
                 webViewClient = object : WebViewClient() {
                     override fun onPageFinished(view: WebView?, url: String?) {
                         super.onPageFinished(view, url)
-                        // Register this WebView with the ViewModel for output routing
                         viewModel.registerWebView(tab.id, this@apply)
+                        requestFocus()
+                        // Focus xterm.js terminal
+                        evaluateJavascript("setTimeout(() => { term.focus(); }, 200);", null)
+                        // Show keyboard
+                        val imm = context.getSystemService(android.content.Context.INPUT_METHOD_SERVICE) as InputMethodManager
+                        imm.showSoftInput(this@apply, InputMethodManager.SHOW_IMPLICIT)
                     }
                 }
 
                 webChromeClient = object : WebChromeClient() {}
 
-                // Load xterm.js terminal
                 loadUrl("file:///android_asset/terminal/index.html")
             }
         },

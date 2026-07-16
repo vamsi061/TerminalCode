@@ -1,7 +1,6 @@
 package com.terminalcode.app
 
 import android.content.Intent
-import android.net.Uri
 import android.os.Bundle
 import android.util.Log
 import androidx.activity.ComponentActivity
@@ -34,9 +33,6 @@ class MainActivity : ComponentActivity() {
         // Start terminal foreground service
         startTerminalService()
 
-        // Handle incoming intents
-        handleIntent(intent)
-
         Log.d(TAG, "MainActivity created")
 
         setContent {
@@ -46,36 +42,8 @@ class MainActivity : ComponentActivity() {
                     color = DarkBackground
                 ) {
                     MainScreen(
-                        onOpenFile = { uri, name ->
-                            // Handle file opening from the file manager
-                            Log.d(TAG, "Opening file: $name ($uri)")
-                        }
+                        onOpenFile = { _, _ -> }
                     )
-                }
-            }
-        }
-    }
-
-    override fun onNewIntent(intent: Intent?) {
-        super.onNewIntent(intent)
-        intent?.let { handleIntent(it) }
-    }
-
-    /**
-     * Handles intents from other apps (e.g., opening a text file).
-     */
-    private fun handleIntent(intent: Intent?) {
-        when (intent?.action) {
-            Intent.ACTION_VIEW -> {
-                intent.data?.let { uri ->
-                    Log.d(TAG, "Received VIEW intent: $uri")
-                    // TODO: Open file in editor
-                }
-            }
-            Intent.ACTION_EDIT -> {
-                intent.data?.let { uri ->
-                    Log.d(TAG, "Received EDIT intent: $uri")
-                    // TODO: Open file for editing
                 }
             }
         }

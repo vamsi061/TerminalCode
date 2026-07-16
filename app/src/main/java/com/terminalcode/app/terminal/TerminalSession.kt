@@ -83,6 +83,16 @@ class TerminalSession(
                 setupPty()
                 spawnShell()
                 startIoThreads()
+
+                // Show welcome message with pwd
+                val homeDir = System.getenv("HOME") ?: "/"
+                _output.value += "\r\n\u001b[32mTerminalCode v1.0.0\u001b[0m\r\n"
+                _output.value += "\u001b[36mWorking directory: $homeDir\u001b[0m\r\n"
+                _output.value += "\r\n"
+
+                // Send initial commands to show pwd
+                writeInput("cd $homeDir\n")
+                writeInput("pwd\n")
             } catch (e: Exception) {
                 _output.value += "\r\n\u001b[31mError: ${e.message}\u001b[0m\r\n"
                 running.set(false)

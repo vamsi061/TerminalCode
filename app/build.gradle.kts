@@ -73,9 +73,6 @@ dependencies {
     implementation("androidx.compose.material3:material3")
     implementation("androidx.compose.material:material-icons-extended")
 
-    // Navigation
-    implementation("androidx.navigation:navigation-compose:2.7.6")
-
     // Lifecycle & ViewModel
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.7.0")
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.7.0")
@@ -88,9 +85,6 @@ dependencies {
 
     // Kotlin Coroutines
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
-
-    // JSON parsing for editor/terminal bridge
-    implementation("org.json:json:20231013")
 
     // Testing
     testImplementation("junit:junit:4.13.2")
