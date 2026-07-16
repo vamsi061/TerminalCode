@@ -169,7 +169,8 @@ class TerminalSession(
             env["PATH"] = System.getenv("PATH")
                 ?: "/system/bin:/system/xbin:/data/data/com.termux/files/usr/bin"
 
-            pb.command(shellToUse, "--login")
+            // Start without --login flag (Android /system/bin/sh doesn't support it)
+            pb.command(shellToUse)
 
             shellProcess = pb.start()
 

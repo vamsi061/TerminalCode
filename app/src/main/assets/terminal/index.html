@@ -18,6 +18,25 @@
         .xterm-viewport::-webkit-scrollbar-track { background: transparent; }
         .xterm-viewport::-webkit-scrollbar-thumb { background: #30363d; border-radius: 3px; }
 
+        #toolbar {
+            display: flex; gap: 4px; padding: 2px 8px;
+            background: #161b22; border-bottom: 1px solid #21262d;
+        }
+        #toolbar button {
+            background: #21262d; color: #8b949e;
+            border: 1px solid #30363d; border-radius: 4px;
+            padding: 2px 8px; font-size: 11px; font-family: monospace;
+            cursor: pointer;
+        }
+        #toolbar button:active { background: #30363d; }
+
+        #keyboard-input {
+            position: fixed; bottom: 0; left: 0;
+            width: 1px; height: 1px; opacity: 0.01;
+            border: none; padding: 0; margin: 0;
+            outline: none; resize: none;
+        }
+
         #loading {
             position: fixed; top: 0; left: 0; right: 0; bottom: 0;
             display: flex; flex-direction: column;
@@ -47,6 +66,15 @@
         <div class="loading-text">Starting terminal...</div>
         <div class="loading-error" id="loadingError"></div>
     </div>
+
+    <div id="toolbar">
+        <button id="btn-ctrl-c">^C</button>
+        <button id="btn-ctrl-d">^D</button>
+        <button id="btn-tab">Tab</button>
+        <button id="btn-clear">Clear</button>
+    </div>
+
+    <textarea id="keyboard-input" autocapitalize="off" autocomplete="off" autocorrect="off" spellcheck="false"></textarea>
     <div id="terminal-container"></div>
 
     <script src="xterm.min.js"></script>
@@ -96,37 +124,93 @@
 
             document.getElementById('loading').classList.add('hidden');
 
-            setTimeout(() => { term.focus(); }, 500);
+            // ============================================================
+            // Android Keyboard Capture
+            // ============================================================
+            const keyboardInput = document.getElementById('keyboard-input');
+            let prevLen = 0;
 
-            term.onData(data => {
-                if (window.TerminalBridge) {
-                    window.TerminalBridge.onData(data);
+            function openKeyboard() {
+                keyboardInput.value = '';
+                prevLen = 0;
+                keyboardInput.focus();
+            }
+
+            keyboardInput.addEventListener('input', function() {
+                const cur = this.value;
+                const curLen = cur.length;
+
+                // Backspace detected
+                if (curLen < prevLen) {
+                    for (let i = 0; i < prevLen - curLen; i++) {
+                        if (window.TerminalBridge) window.TerminalBridge.onData('\x7f');
+                    }
                 }
+
+                // New chars typed
+                if (curLen > prevLen) {
+                    const newChars = cur.substring(prevLen);
+                    if (window.TerminalBridge) window.TerminalBridge.onData(newChars);
+                }
+
+                prevLen = curLen;
+                setTimeout(() => { this.value = ''; prevLen = 0; }, 30);
+            });
+
+            keyboardInput.addEventListener('keydown', function(e) {
+                if (e.key === 'Enter') {
+                    if (window.TerminalBridge) window.TerminalBridge.onData('\n');
+                    e.preventDefault();
+                    setTimeout(() => { this.value = ''; prevLen = 0; }, 10);
+                }
+            });
+
+            // Tap to focus
+            container.addEventListener('click', function() { openKeyboard(); term.focus(); });
+            container.addEventListener('touchstart', function() { openKeyboard(); term.focus(); }, { passive: true });
+
+            // Toolbar buttons
+            document.getElementById('btn-ctrl-c').addEventListener('click', function() {
+                if (window.TerminalBridge) window.TerminalBridge.onData('\x03');
+                openKeyboard();
+            });
+            document.getElementById('btn-ctrl-d').addEventListener('click', function() {
+                if (window.TerminalBridge) window.TerminalBridge.onData('\x04');
+                openKeyboard();
+            });
+            document.getElementById('btn-tab').addEventListener('click', function() {
+                if (window.TerminalBridge) window.TerminalBridge.onData('\t');
+                openKeyboard();
+            });
+            document.getElementById('btn-clear').addEventListener('click', function() {
+                term.clear();
+                openKeyboard();
+            });
+
+            // ============================================================
+            // Terminal Events
+            // ============================================================
+            term.onData(data => {
+                if (window.TerminalBridge) window.TerminalBridge.onData(data);
             });
 
             term.onResize(({ cols, rows }) => {
-                if (window.TerminalBridge) {
-                    window.TerminalBridge.onResize(cols, rows);
-                }
+                if (window.TerminalBridge) window.TerminalBridge.onResize(cols, rows);
             });
 
             term.onTitleChange(title => {
-                if (window.TerminalBridge) {
-                    window.TerminalBridge.onTitle(title);
-                }
+                if (window.TerminalBridge) window.TerminalBridge.onTitle(title);
             });
-
-            container.addEventListener('click', () => { term.focus(); });
-            container.addEventListener('touchstart', () => { term.focus(); }, { passive: true });
 
             window.addEventListener('resize', () => {
                 fitAddon.fit();
                 const dims = fitAddon.proposeDimensions();
-                if (dims && window.TerminalBridge) {
-                    window.TerminalBridge.onResize(dims.cols, dims.rows);
-                }
+                if (dims && window.TerminalBridge) window.TerminalBridge.onResize(dims.cols, dims.rows);
             });
 
+            // ============================================================
+            // Android Callable Functions
+            // ============================================================
             function writeToTerminal(data) { term.write(data); }
             function writeBatch(data) {
                 for (let i = 0; i < data.length; i += 4096) {
@@ -135,18 +219,24 @@
             }
             function clearTerminal() { term.clear(); }
             function fitTerminal() { fitAddon.fit(); }
-            function focusTerminal() { term.focus(); }
+            function focusTerminal() { term.focus(); openKeyboard(); }
             function resetTerminal() { term.reset(); }
 
+            // ============================================================
+            // Notify Android
+            // ============================================================
             if (window.TerminalBridge) {
                 const dims = fitAddon.proposeDimensions();
                 window.TerminalBridge.onReady(dims ? dims.cols : 80, dims ? dims.rows : 24);
             }
+
+            setTimeout(function() { openKeyboard(); }, 1000);
+
         } catch (e) {
             console.error('Terminal error:', e);
             document.getElementById('loadingError').textContent = e.message;
             document.getElementById('loadingError').style.display = 'block';
-            document.querySelector('.loading-text').textContent = 'Terminal failed to start';
+            document.querySelector('.loading-text').textContent = 'Failed: ' + e.message;
             document.querySelector('.loading-spinner').style.display = 'none';
         }
     </script>
