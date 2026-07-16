@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">TerminalCode</string>
+    <string name="tab_terminal">Terminal</string>
+    <string name="tab_editor">Editor</string>
+    <string name="tab_files">Files</string>
+    <string name="new_tab">New Tab</string>
+    <string name="close_tab">Close Tab</string>
+    <string name="select_directory">Select Directory</string>
+    <string name="new_file">New File</string>
+    <string name="new_folder">New Folder</string>
+    <string name="save">Save</string>
+    <string name="run">Run</string>
+    <string name="terminal_service_channel">Terminal Sessions</string>
+    <string name="terminal_service_running">Terminal session is running</string>
+</resources>

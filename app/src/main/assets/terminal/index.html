@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <title>Terminal</title>
+    <link href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.min.css" rel="stylesheet" />
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        html, body {
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background: #0d1117;
+        }
+        #terminal-container {
+            width: 100%;
+            height: 100%;
+            padding: 4px;
+        }
+        .xterm {
+            height: 100%;
+        }
+        .xterm-viewport {
+            scrollbar-width: thin;
+            scrollbar-color: #30363d transparent;
+        }
+        .xterm-viewport::-webkit-scrollbar {
+            width: 6px;
+        }
+        .xterm-viewport::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        .xterm-viewport::-webkit-scrollbar-thumb {
+            background: #30363d;
+            border-radius: 3px;
+        }
+    </style>
+</head>
+<body>
+    <div id="terminal-container"></div>
+
+    <script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/xterm-addon-web-links@0.9.0/lib/xterm-addon-web-links.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/xterm-addon-search@0.13.0/lib/xterm-addon-search.min.js"></script>
+
+    <script>
+        // ============================================================
+        // Terminal Configuration
+        // ============================================================
+        const terminalConfig = {
+            cursorBlink: true,
+            cursorStyle: 'block',
+            cursorWidth: 2,
+            fontSize: 14,
+            fontFamily: "'JetBrains Mono', 'Fira Code', 'Cascadia Code', 'Hack', 'Source Code Pro', 'Menlo', 'Monaco', 'Courier New', monospace",
+            fontWeight: 'normal',
+            fontWeightBold: 'bold',
+            letterSpacing: 0,
+            lineHeight: 1.2,
+            rows: 24,
+            cols: 80,
+            theme: {
+                background: '#0d1117',
+                foreground: '#c9d1d9',
+                cursor: '#c9d1d9',
+                cursorAccent: '#0d1117',
+                selectionBackground: '#3b5998',
+                selectionInactiveBackground: '#1f2937',
+                black: '#484f58',
+                red: '#ff7b72',
+                green: '#3fb950',
+                yellow: '#d29922',
+                blue: '#58a6ff',
+                magenta: '#bc8cff',
+                cyan: '#39c5cf',
+                white: '#b1bac4',
+                brightBlack: '#6e7681',
+                brightRed: '#ffa198',
+                brightGreen: '#56d364',
+                brightYellow: '#e3b341',
+                brightBlue: '#79c0ff',
+                brightMagenta: '#d2a8ff',
+                brightCyan: '#56d4dd',
+                brightWhite: '#f0f6fc'
+            },
+            allowTransparency: true,
+            scrollback: 10000,
+            tabStopWidth: 4,
+            allowProposedApi: true,
+            smoothScrollDuration: 80
+        };
+
+        // ============================================================
+        // Initialize Terminal
+        // ============================================================
+        const term = new Terminal(terminalConfig);
+        const fitAddon = new FitAddon.FitAddon();
+        const webLinksAddon = new WebLinksAddon.WebLinksAddon();
+        const searchAddon = new SearchAddon.SearchAddon();
+
+        term.loadAddon(fitAddon);
+        term.loadAddon(webLinksAddon);
+        term.loadAddon(searchAddon);
+
+        const container = document.getElementById('terminal-container');
+        term.open(container);
+        fitAddon.fit();
+
+        // ============================================================
+        // Android Bridge Interface
+        // ============================================================
+
+        // Send data from terminal to Android
+        function sendToAndroid(data) {
+            if (window.TerminalBridge) {
+                window.TerminalBridge.onData(data);
+            }
+        }
+
+        function sendResize(cols, rows) {
+            if (window.TerminalBridge) {
+                window.TerminalBridge.onResize(cols, rows);
+            }
+        }
+
+        function sendTitle(title) {
+            if (window.TerminalBridge) {
+                window.TerminalBridge.onTitle(title);
+            }
+        }
+
+        // ============================================================
+        // Terminal Event Handlers
+        // ============================================================
+
+        // Handle user input from keyboard
+        term.onData(data => {
+            sendToAndroid(data);
+        });
+
+        // Handle terminal resize
+        term.onResize(({ cols, rows }) => {
+            sendResize(cols, rows);
+        });
+
+        // Handle title changes
+        term.onTitleChange(title => {
+            sendTitle(title);
+        });
+
+        // Handle paste events
+        term.attachCustomKeyEventHandler((event) => {
+            if (event.ctrlKey && event.key === 'v') {
+                // Allow paste: we'll handle it through the Android bridge
+                return false;
+            }
+            if (event.ctrlKey && event.key === 'c') {
+                // Allow copy if selection exists
+                if (term.hasSelection()) {
+                    return true;
+                }
+            }
+            return true;
+        });
+
+        // ============================================================
+        // Android Callable Methods
+        // ============================================================
+
+        /**
+         * Write data to the terminal (from Android shell output)
+         */
+        function writeToTerminal(data) {
+            term.write(data);
+        }
+
+        /**
+         * Write a line to the terminal
+         */
+        function writelnToTerminal(data) {
+            term.writeln(data);
+        }
+
+        /**
+         * Clear the terminal
+         */
+        function clearTerminal() {
+            term.clear();
+        }
+
+        /**
+         * Resize the terminal to fit the container
+         */
+        function fitTerminal() {
+            fitAddon.fit();
+            const dims = fitAddon.proposeDimensions();
+            if (dims) {
+                sendResize(dims.cols, dims.rows);
+            }
+        }
+
+        /**
+         * Set the terminal's active session title
+         */
+        function setTerminalTitle(title) {
+            document.title = title;
+        }
+
+        /**
+         * Focus the terminal
+         */
+        function focusTerminal() {
+            term.focus();
+        }
+
+        /**
+         * Blur the terminal
+         */
+        function blurTerminal() {
+            term.blur();
+        }
+
+        /**
+         * Write a large chunk of data in batch for performance
+         */
+        function writeBatch(data) {
+            if (typeof data === 'string') {
+                // Split into lines and write in chunks
+                const chunkSize = 4096;
+                for (let i = 0; i < data.length; i += chunkSize) {
+                    term.write(data.substring(i, i + chunkSize));
+                }
+            }
+        }
+
+        /**
+         * Reset the terminal
+         */
+        function resetTerminal() {
+            term.reset();
+        }
+
+        /**
+         * Toggle between full terminal and compact
+         */
+        function toggleAltBuffer() {
+            // xterm.js handles this automatically with escape sequences
+        }
+
+        // ============================================================
+        // Window Events
+        // ============================================================
+
+        // Handle window resize
+        window.addEventListener('resize', () => {
+            fitAddon.fit();
+            const dims = fitAddon.proposeDimensions();
+            if (dims) {
+                sendResize(dims.cols, dims.rows);
+            }
+        });
+
+        // Handle visibility change - re-fit when returning to terminal
+        document.addEventListener('visibilitychange', () => {
+            if (!document.hidden) {
+                setTimeout(() => {
+                    fitAddon.fit();
+                }, 100);
+            }
+        });
+
+        // Handle touch events for mobile
+        let lastTouchEnd = 0;
+        container.addEventListener('touchend', (event) => {
+            const now = Date.now();
+            if (now - lastTouchEnd <= 300) {
+                event.preventDefault();
+            }
+            lastTouchEnd = now;
+        }, false);
+
+        // ============================================================
+        // Initialization Complete
+        // ============================================================
+
+        // Notify Android that terminal is ready
+        if (window.TerminalBridge) {
+            window.TerminalBridge.onReady(fitAddon.proposeDimensions()?.cols || 80, fitAddon.proposeDimensions()?.rows || 24);
+        }
+
+        console.log('xterm.js terminal initialized successfully');
+    </script>
+</body>
+</html>

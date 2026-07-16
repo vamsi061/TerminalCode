@@ -1,0 +1,351 @@
+package com.terminalcode.app.terminal
+
+import android.system.ErrnoException
+import android.system.Os
+import android.system.OsConstants
+import kotlinx.coroutines.*
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import java.io.FileDescriptor
+import java.io.FileInputStream
+import java.io.FileOutputStream
+import java.io.IOException
+import java.util.UUID
+import java.util.concurrent.atomic.AtomicBoolean
+
+/**
+ * Manages a pseudo-terminal (PTY) session connected to a shell process.
+ *
+ * This class handles:
+ * - Creating and managing a PTY device
+ * - Spawning a shell (bash/sh/zsh)
+ * - Reading output from the shell and making it available via a flow
+ * - Writing user input to the shell
+ * - Managing the terminal size (rows/columns)
+ */
+class TerminalSession(
+    val sessionId: String = UUID.randomUUID().toString(),
+    private val shellPath: String = "/system/bin/sh"
+) {
+    private val _output = MutableStateFlow("")
+    val output: StateFlow<String> = _output.asStateFlow()
+
+    private val _isRunning = MutableStateFlow(false)
+    val isRunning: StateFlow<Boolean> = _isRunning.asStateFlow()
+
+    private val inputChannel = Channel<ByteArray>(Channel.BUFFERED)
+
+    private var masterFd: FileDescriptor? = null
+    private var slaveFd: FileDescriptor? = null
+    private var shellProcess: Process? = null
+    private var outputThread: Thread? = null
+    private var inputThread: Thread? = null
+    private var job: Job? = null
+    private val running = AtomicBoolean(false)
+
+    private var rows: Int = 24
+    private var columns: Int = 80
+
+    companion object {
+        private const val TAG = "TerminalSession"
+        private val SHELL_PATHS = listOf(
+            "/system/bin/sh",
+            "/system/bin/bash",
+            "/data/data/com.termux/files/usr/bin/bash",
+            "/data/data/com.termux/files/usr/bin/zsh",
+            "/data/data/com.termux/files/usr/bin/fish",
+            "/bin/sh",
+            "/bin/bash"
+        )
+    }
+
+    /**
+     * Starts the terminal session by:
+     * 1. Opening a PTY
+     * 2. Spawning a shell process
+     * 3. Connecting the shell to the PTY
+     * 4. Starting I/O threads
+     */
+    fun start() {
+        if (running.get()) return
+        running.set(true)
+        _isRunning.value = true
+
+        job = CoroutineScope(Dispatchers.IO + SupervisorJob()).launch {
+            try {
+                setupPty()
+                spawnShell()
+                startIoThreads()
+            } catch (e: Exception) {
+                _output.value += "\r\n\x1b[31mError: ${e.message}\x1b[0m\r\n"
+                running.set(false)
+                _isRunning.value = false
+            }
+        }
+    }
+
+    /**
+     * Creates a pseudo-terminal device using the Linux PTY system.
+     * Opens /dev/ptmx to get the master side, then grants access and
+     * unlocks the slave side.
+     */
+    private fun setupPty() {
+        try {
+            // Open the master side of the PTY
+            masterFd = Os.open("/dev/ptmx",
+                OsConstants.O_RDWR or OsConstants.O_CLOEXEC, 0)
+
+            // Grant access to the slave
+            Os.grantpt(masterFd!!)
+            // Unlock the slave
+            Os.unlockpt(masterFd!!)
+
+            // Get the slave device path
+            val slaveName = Os.ptsname(masterFd!!)
+
+            // Open the slave side
+            slaveFd = Os.open(slaveName,
+                OsConstants.O_RDWR or OsConstants.O_CLOEXEC, 0)
+
+        } catch (e: ErrnoException) {
+            throw IOException("Failed to create PTY: ${e.message}", e)
+        }
+    }
+
+    /**
+     * Spawns a shell process connected to the slave side of the PTY.
+     * Searches for available shells and falls back to available options.
+     */
+    private fun spawnShell() {
+        val shellToUse = findShell()
+        val pb = ProcessBuilder()
+
+        // Set the slave PTY as the stdin/stdout/stderr
+        try {
+            val slaveInputStream = FileInputStream(slaveFd!!)
+            val slaveOutputStream = FileOutputStream(slaveFd!!)
+
+            pb.redirectInput(ProcessBuilder.Redirect.PIPE)
+            pb.redirectOutput(ProcessBuilder.Redirect.PIPE)
+            pb.redirectErrorStream(true)
+
+            // Set environment variables for proper terminal behavior
+            val env = pb.environment()
+            env["TERM"] = "xterm-256color"
+            env["HOME"] = System.getenv("HOME") ?: "/"
+            env["SHELL"] = shellToUse
+            env["USER"] = System.getenv("USER") ?: "shell"
+            env["PATH"] = System.getenv("PATH")
+                ?: "/system/bin:/system/xbin:/data/data/com.termux/files/usr/bin"
+
+            pb.command(shellToUse, "--login")
+
+            shellProcess = pb.start()
+
+            // Connect shell I/O to PTY using separate threads
+            val processInput = shellProcess!!.outputStream
+            val processOutput = shellProcess!!.inputStream
+
+            // Pipe: PTY slave input -> process output (process reads from PTY)
+            Thread {
+                try {
+                    val buffer = ByteArray(4096)
+                    val inputStream = FileInputStream(slaveFd!!)
+                    while (running.get()) {
+                        val read = inputStream.read(buffer)
+                        if (read <= 0) break
+                        processInput.write(buffer, 0, read)
+                        processInput.flush()
+                    }
+                } catch (e: IOException) {
+                    // Stream closed or session ended
+                }
+            }.apply {
+                isDaemon = true
+                name = "pty-to-process"
+                start()
+            }
+
+            // Pipe: Process output -> PTY master (we read from process and write to master)
+            outputThread = Thread {
+                try {
+                    val buffer = ByteArray(4096)
+                    val masterOutputStream = FileOutputStream(masterFd!!)
+                    while (running.get()) {
+                        val read = processOutput.read(buffer)
+                        if (read <= 0) break
+                        masterOutputStream.write(buffer, 0, read)
+                        masterOutputStream.flush()
+
+                        // Emit to output flow for WebView
+                        val text = String(buffer, 0, read, Charsets.UTF_8)
+                        _output.value += text
+                    }
+                } catch (e: IOException) {
+                    // Stream closed or session ended
+                }
+            }.apply {
+                isDaemon = true
+                name = "process-output"
+                start()
+            }
+
+        } catch (e: Exception) {
+            throw IOException("Failed to spawn shell: ${e.message}", e)
+        }
+    }
+
+    /**
+     * Searches for an available shell on the system.
+     */
+    private fun findShell(): String {
+        for (path in SHELL_PATHS) {
+            try {
+                val file = java.io.File(path)
+                if (file.exists() && file.canExecute()) {
+                    return path
+                }
+            } catch (e: Exception) {
+                continue
+            }
+        }
+        return shellPath
+    }
+
+    /**
+     * Starts threads to handle I/O between the PTY and the WebView interface.
+     */
+    private fun startIoThreads() {
+        // Input thread: reads from the input channel (user keystrokes)
+        // and writes to the PTY master
+        inputThread = Thread {
+            try {
+                val masterOutputStream = FileOutputStream(masterFd!!)
+                while (running.get()) {
+                    val data = inputChannel.receive()
+                    masterOutputStream.write(data)
+                    masterOutputStream.flush()
+                }
+            } catch (e: Exception) {
+                // Channel closed or session ended
+            }
+        }.apply {
+            isDaemon = true
+            name = "terminal-input"
+            start()
+        }
+    }
+
+    /**
+     * Writes user input to the terminal session.
+     * This is called from the WebView JavaScript interface when
+     * the user types in the xterm.js terminal.
+     */
+    fun writeInput(input: String) {
+        if (!running.get()) return
+        val bytes = input.toByteArray(Charsets.UTF_8)
+        inputChannel.trySend(bytes)
+    }
+
+    /**
+     * Writes raw bytes to the terminal session.
+     */
+    fun writeBytes(data: ByteArray) {
+        if (!running.get()) return
+        inputChannel.trySend(data)
+    }
+
+    /**
+     * Resizes the terminal PTY to the specified dimensions.
+     * This is called when the xterm.js terminal is resized.
+     */
+    fun resize(cols: Int, rows: Int) {
+        this.columns = cols
+        this.rows = rows
+        try {
+            if (masterFd != null) {
+                // The TIOCSWINSZ ioctl code
+                val TIOCSWINSZ = 0x5414
+                // Pack winsize struct using ByteBuffer for clarity:
+                // struct winsize { unsigned short ws_row; unsigned short ws_col;
+                //                  unsigned short ws_xpixel; unsigned short ws_ypixel; }
+                val winsize = java.nio.ByteBuffer.allocate(8)
+                    .order(java.nio.ByteOrder.LITTLE_ENDIAN)
+                    .putShort(rows.toShort())
+                    .putShort(cols.toShort())
+                    .putShort(0) // xpixel
+                    .putShort(0) // ypixel
+                    .array()
+                @Suppress("DEPRECATION")
+                android.system.Os.ioctl(masterFd!!, TIOCSWINSZ, winsize)
+            }
+        } catch (e: Exception) {
+            // Ignore resize errors
+        }
+    }
+
+    /**
+     * Clears the terminal output buffer.
+     */
+    fun clearOutput() {
+        _output.value = ""
+    }
+
+    /**
+     * Sends a Ctrl+C signal to the foreground process.
+     */
+    fun sendCtrlC() {
+        writeInput("\u0003")
+    }
+
+    /**
+     * Sends a Ctrl+D signal (EOF).
+     */
+    fun sendCtrlD() {
+        writeInput("\u0004")
+    }
+
+    /**
+     * Stops the terminal session and cleans up all resources.
+     */
+    fun stop() {
+        running.set(false)
+        _isRunning.value = false
+
+        try {
+            inputChannel.close()
+        } catch (_: Exception) {}
+
+        try {
+            outputThread?.interrupt()
+        } catch (_: Exception) {}
+
+        try {
+            inputThread?.interrupt()
+        } catch (_: Exception) {}
+
+        try {
+            shellProcess?.destroy()
+            shellProcess?.waitFor(5, java.util.concurrent.TimeUnit.SECONDS)
+            shellProcess?.destroyForcibly()
+        } catch (_: Exception) {}
+
+        try {
+            if (masterFd != null) Os.close(masterFd!!)
+        } catch (_: Exception) {}
+
+        try {
+            if (slaveFd != null) Os.close(slaveFd!!)
+        } catch (_: Exception) {}
+
+        masterFd = null
+        slaveFd = null
+        shellProcess = null
+        job?.cancel()
+        job = null
+
+        _output.value += "\r\n\x1b[33m[Session terminated]\x1b[0m\r\n"
+    }
+}
