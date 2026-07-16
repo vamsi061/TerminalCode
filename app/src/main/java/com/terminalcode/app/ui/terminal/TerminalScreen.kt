@@ -125,7 +125,7 @@ fun TerminalScreen(
                                 // when the view layout happens (onLayout -> updateSize).
                                 try {
                                     attachSession(session)
-                                } catch (e: Exception) {
+                                } catch (e: Throwable) {
                                     android.util.Log.e("TerminalScreen", "Failed to attach session", e)
                                 }
                             }

@@ -38,7 +38,7 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
     init {
         try {
             createNewTab()
-        } catch (e: Exception) {
+        } catch (e: Throwable) {
             Log.e(TAG, "Failed to create initial terminal session", e)
         }
     }
@@ -163,7 +163,7 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
             _activeTabId.value = tab.id
             return tab
 
-        } catch (e: Exception) {
+        } catch (e: Throwable) {
             Log.e(TAG, "Failed to create terminal session", e)
             // Return a placeholder tab so the UI doesn't crash
             val fallback = TerminalTab(title = "Error", isRunning = false)
