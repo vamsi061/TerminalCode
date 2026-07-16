@@ -16,7 +16,6 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color as ComposeColor
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import com.terminalcode.app.ui.theme.*
@@ -47,7 +46,7 @@ fun EditorScreen(
     Column(
         modifier = modifier
             .fillMaxSize()
-            .background(ComposeColor(DarkBackground))
+            .background(DarkBackground)
     ) {
         // Editor tab bar
         if (tabs.isNotEmpty()) {
@@ -103,7 +102,7 @@ private fun EditorTabBar(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .background(ComposeColor(DarkSurface))
+            .background(DarkSurface)
             .padding(horizontal = 4.dp, vertical = 2.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -116,8 +115,8 @@ private fun EditorTabBar(
                 Surface(
                     onClick = { onTabClick(tab.id) },
                     shape = RoundedCornerShape(topStart = 6.dp, topEnd = 6.dp),
-                    color = if (isActive) ComposeColor(DarkBackground)
-                    else ComposeColor(DarkSurfaceVariant),
+                    color = if (isActive) DarkBackground
+                    else DarkSurfaceVariant,
                     modifier = Modifier.height(32.dp)
                 ) {
                     Row(
@@ -128,7 +127,7 @@ private fun EditorTabBar(
                         Icon(
                             imageVector = Icons.Default.Description,
                             contentDescription = null,
-                            tint = ComposeColor(DarkTextSecondary),
+                            tint = DarkTextSecondary,
                             modifier = Modifier.size(14.dp)
                         )
 
@@ -138,8 +137,8 @@ private fun EditorTabBar(
                         Text(
                             text = tab.fileName,
                             style = MaterialTheme.typography.labelMedium,
-                            color = if (isActive) ComposeColor(DarkTextPrimary)
-                            else ComposeColor(DarkTextSecondary),
+                            color = if (isActive) DarkTextPrimary
+                            else DarkTextSecondary,
                             maxLines = 1
                         )
 
@@ -147,7 +146,7 @@ private fun EditorTabBar(
                         if (tab.isModified) {
                             Text(
                                 text = " ●",
-                                color = ComposeColor(DarkWarning),
+                                color = DarkWarning,
                                 style = MaterialTheme.typography.labelSmall
                             )
                         }
@@ -162,7 +161,7 @@ private fun EditorTabBar(
                             Icon(
                                 imageVector = Icons.Default.Close,
                                 contentDescription = "Close tab",
-                                tint = ComposeColor(DarkTextSecondary),
+                                tint = DarkTextSecondary,
                                 modifier = Modifier.size(14.dp)
                             )
                         }
@@ -179,7 +178,7 @@ private fun EditorTabBar(
             Icon(
                 imageVector = Icons.Default.Add,
                 contentDescription = "New file",
-                tint = ComposeColor(DarkTextPrimary),
+                tint = DarkTextPrimary,
                 modifier = Modifier.size(20.dp)
             )
         }
@@ -255,7 +254,7 @@ private fun EditorStatusBar(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .background(ComposeColor(DarkSurface))
+            .background(DarkSurface)
             .padding(horizontal = 12.dp, vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween
@@ -269,7 +268,7 @@ private fun EditorStatusBar(
             Text(
                 text = tab?.fileName ?: "Untitled",
                 style = MaterialTheme.typography.labelSmall,
-                color = ComposeColor(DarkTextSecondary)
+                color = DarkTextSecondary
             )
 
             // Modified indicator
@@ -277,7 +276,7 @@ private fun EditorStatusBar(
                 Text(
                     text = "Modified",
                     style = MaterialTheme.typography.labelSmall,
-                    color = ComposeColor(DarkWarning)
+                    color = DarkWarning
                 )
             }
         }
@@ -291,14 +290,14 @@ private fun EditorStatusBar(
             Text(
                 text = "Ln ${cursorPosition.first}, Col ${cursorPosition.second}",
                 style = MaterialTheme.typography.labelSmall,
-                color = ComposeColor(DarkTextSecondary)
+                color = DarkTextSecondary
             )
 
             // Language
             Text(
                 text = tab?.language?.substringAfter("/")?.uppercase() ?: "TXT",
                 style = MaterialTheme.typography.labelSmall,
-                color = ComposeColor(DarkAccent)
+                color = DarkAccent
             )
         }
     }

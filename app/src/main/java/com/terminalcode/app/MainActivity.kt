@@ -14,7 +14,6 @@ import com.terminalcode.app.service.TerminalService
 import com.terminalcode.app.ui.MainScreen
 import com.terminalcode.app.ui.theme.DarkBackground
 import com.terminalcode.app.ui.theme.TerminalCodeTheme
-import androidx.compose.ui.graphics.Color as ComposeColor
 
 /**
  * Main entry point for TerminalCode.
@@ -44,7 +43,7 @@ class MainActivity : ComponentActivity() {
             TerminalCodeTheme(darkTheme = true) {
                 Surface(
                     modifier = Modifier.fillMaxSize(),
-                    color = ComposeColor(DarkBackground)
+                    color = DarkBackground
                 ) {
                     MainScreen(
                         onOpenFile = { uri, name ->

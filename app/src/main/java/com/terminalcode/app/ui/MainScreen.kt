@@ -16,7 +16,6 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color as ComposeColor
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -46,13 +45,12 @@ fun MainScreen(
     fileViewModel: FileViewModel = viewModel()
 ) {
     var selectedTab by remember { mutableIntStateOf(0) }
-    val context = LocalContext.current
 
     Scaffold(
         modifier = Modifier
             .fillMaxSize()
-            .background(ComposeColor(DarkBackground)),
-        containerColor = ComposeColor(DarkBackground),
+            .background(DarkBackground),
+        containerColor = DarkBackground,
         bottomBar = {
             BottomNavigationBar(
                 selectedTab = selectedTab,
@@ -102,7 +100,7 @@ private fun BottomNavigationBar(
 ) {
     Surface(
         modifier = Modifier.fillMaxWidth(),
-        color = ComposeColor(NavBarBackground),
+        color = NavBarBackground,
         shadowElevation = 8.dp
     ) {
         // Top separator line
@@ -110,7 +108,7 @@ private fun BottomNavigationBar(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(0.5.dp)
-                .background(ComposeColor(NavBarBorder))
+                .background(NavBarBorder)
         )
 
         Row(
@@ -168,7 +166,7 @@ private fun TabItem(
                     .width(24.dp)
                     .height(2.dp)
                     .background(
-                        color = ComposeColor(TabActiveIndicator),
+                        color = TabActiveIndicator,
                         shape = RoundedCornerShape(1.dp)
                     )
             )
@@ -182,8 +180,8 @@ private fun TabItem(
         Icon(
             imageVector = if (isSelected) selectedIcon else icon,
             contentDescription = label,
-            tint = if (isSelected) ComposeColor(TabActiveIndicator)
-            else ComposeColor(TabInactive),
+            tint = if (isSelected) TabActiveIndicator
+            else TabInactive,
             modifier = Modifier.size(24.dp)
         )
 
@@ -195,8 +193,8 @@ private fun TabItem(
             style = MaterialTheme.typography.labelSmall.copy(
                 fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal
             ),
-            color = if (isSelected) ComposeColor(TabActiveIndicator)
-            else ComposeColor(TabInactive)
+            color = if (isSelected) TabActiveIndicator
+            else TabInactive
         )
     }
 }

@@ -17,7 +17,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color as ComposeColor
+import com.terminalcode.app.terminal.TerminalWebViewBridge
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import com.terminalcode.app.ui.theme.*
@@ -44,7 +44,7 @@ fun TerminalScreen(
     Column(
         modifier = modifier
             .fillMaxSize()
-            .background(ComposeColor(DarkBackground))
+            .background(DarkBackground)
     ) {
         // Tab bar
         if (tabs.isNotEmpty()) {
@@ -87,7 +87,7 @@ private fun TerminalTabBar(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .background(ComposeColor(DarkSurface))
+            .background(DarkSurface)
             .padding(horizontal = 4.dp, vertical = 2.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -103,8 +103,8 @@ private fun TerminalTabBar(
                 Surface(
                     onClick = { onTabClick(tab.id) },
                     shape = RoundedCornerShape(topStart = 6.dp, topEnd = 6.dp),
-                    color = if (isActive) ComposeColor(DarkBackground)
-                    else ComposeColor(DarkSurfaceVariant),
+                    color = if (isActive) DarkBackground
+                    else DarkSurfaceVariant,
                     modifier = Modifier.height(32.dp)
                 ) {
                     Row(
@@ -115,8 +115,8 @@ private fun TerminalTabBar(
                         Text(
                             text = tab.title,
                             style = MaterialTheme.typography.labelMedium,
-                            color = if (isActive) ComposeColor(DarkTextPrimary)
-                            else ComposeColor(DarkTextSecondary),
+                            color = if (isActive) DarkTextPrimary
+                            else DarkTextSecondary,
                             maxLines = 1
                         )
 
@@ -131,7 +131,7 @@ private fun TerminalTabBar(
                                 Icon(
                                     imageVector = Icons.Default.Close,
                                     contentDescription = "Close tab",
-                                    tint = ComposeColor(DarkTextSecondary),
+                                    tint = DarkTextSecondary,
                                     modifier = Modifier.size(14.dp)
                                 )
                             }
@@ -149,7 +149,7 @@ private fun TerminalTabBar(
             Icon(
                 imageVector = Icons.Default.Add,
                 contentDescription = "New tab",
-                tint = ComposeColor(DarkTextPrimary),
+                tint = DarkTextPrimary,
                 modifier = Modifier.size(20.dp)
             )
         }
@@ -162,7 +162,7 @@ private fun TerminalTabBar(
             Icon(
                 imageVector = Icons.Default.Keyboard,
                 contentDescription = "Toggle keyboard",
-                tint = ComposeColor(DarkTextPrimary),
+                tint = DarkTextPrimary,
                 modifier = Modifier.size(18.dp)
             )
         }

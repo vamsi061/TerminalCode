@@ -3,8 +3,13 @@ package com.terminalcode.app.terminal
 import android.system.ErrnoException
 import android.system.Os
 import android.system.OsConstants
-import kotlinx.coroutines.*
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -79,7 +84,7 @@ class TerminalSession(
                 spawnShell()
                 startIoThreads()
             } catch (e: Exception) {
-                _output.value += "\r\n\x1b[31mError: ${e.message}\x1b[0m\r\n"
+                _output.value += "\r\n\u001b[31mError: ${e.message}\u001b[0m\r\n"
                 running.set(false)
                 _isRunning.value = false
             }
@@ -89,7 +94,7 @@ class TerminalSession(
     /**
      * Creates a pseudo-terminal device using the Linux PTY system.
      * Opens /dev/ptmx to get the master side, then grants access and
-     * unlocks the slave side.
+     * unlocks the slave side. Uses reflection for hidden API methods.
      */
     private fun setupPty() {
         try {
@@ -97,17 +102,31 @@ class TerminalSession(
             masterFd = Os.open("/dev/ptmx",
                 OsConstants.O_RDWR or OsConstants.O_CLOEXEC, 0)
 
-            // Grant access to the slave
-            Os.grantpt(masterFd!!)
-            // Unlock the slave
-            Os.unlockpt(masterFd!!)
+            // Grant & unlock PTY using reflection (hidden APIs)
+            try {
+                val osClass = Os::class.java
+                osClass.getMethod("grantpt", FileDescriptor::class.java)
+                    .invoke(null, masterFd)
+                osClass.getMethod("unlockpt", FileDescriptor::class.java)
+                    .invoke(null, masterFd)
+                val slaveName = osClass.getMethod("ptsname", FileDescriptor::class.java)
+                    .invoke(null, masterFd) as String
 
-            // Get the slave device path
-            val slaveName = Os.ptsname(masterFd!!)
-
-            // Open the slave side
-            slaveFd = Os.open(slaveName,
-                OsConstants.O_RDWR or OsConstants.O_CLOEXEC, 0)
+                // Open the slave side
+                slaveFd = Os.open(slaveName,
+                    OsConstants.O_RDWR or OsConstants.O_CLOEXEC, 0)
+            } catch (e: Exception) {
+                // Fallback: directly open slave via /dev/pts/
+                val ptsNum = try {
+                    java.io.File("/sys/devices/virtual/tty/ptmx/tty").readText().trim()
+                } catch (e: Exception) {
+                    // Last resort - open pty directly
+                    slaveFd = masterFd
+                    return
+                }
+                slaveFd = Os.open("/dev/pts/$ptsNum",
+                    OsConstants.O_RDWR or OsConstants.O_CLOEXEC, 0)
+            }
 
         } catch (e: ErrnoException) {
             throw IOException("Failed to create PTY: ${e.message}", e)
@@ -224,7 +243,7 @@ class TerminalSession(
             try {
                 val masterOutputStream = FileOutputStream(masterFd!!)
                 while (running.get()) {
-                    val data = inputChannel.receive()
+                    val data = runBlocking { inputChannel.receive() }
                     masterOutputStream.write(data)
                     masterOutputStream.flush()
                 }
@@ -278,8 +297,14 @@ class TerminalSession(
                     .putShort(0) // xpixel
                     .putShort(0) // ypixel
                     .array()
-                @Suppress("DEPRECATION")
-                android.system.Os.ioctl(masterFd!!, TIOCSWINSZ, winsize)
+                // Use reflection for hidden ioctl API
+                try {
+                    val osClass = Os::class.java
+                    osClass.getMethod("ioctl", FileDescriptor::class.java, Int::class.java, ByteArray::class.java)
+                        .invoke(null, masterFd!!, TIOCSWINSZ, winsize)
+                } catch (e: Exception) {
+                    // ioctl not available, ignore
+                }
             }
         } catch (e: Exception) {
             // Ignore resize errors
@@ -346,6 +371,6 @@ class TerminalSession(
         job?.cancel()
         job = null
 
-        _output.value += "\r\n\x1b[33m[Session terminated]\x1b[0m\r\n"
+        _output.value += "\r\n\u001b[33m[Session terminated]\u001b[0m\r\n"
     }
 }

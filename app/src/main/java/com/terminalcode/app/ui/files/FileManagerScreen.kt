@@ -20,7 +20,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color as ComposeColor
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
@@ -76,7 +76,7 @@ fun FileManagerScreen(
     Column(
         modifier = modifier
             .fillMaxSize()
-            .background(ComposeColor(DarkBackground))
+            .background(DarkBackground)
     ) {
         // Header with path and actions
         FileBrowserHeader(
@@ -103,7 +103,7 @@ fun FileManagerScreen(
                 contentAlignment = Alignment.Center
             ) {
                 CircularProgressIndicator(
-                    color = ComposeColor(DarkAccent),
+                    color = DarkAccent,
                     modifier = Modifier.size(32.dp)
                 )
             }
@@ -189,7 +189,7 @@ private fun FileBrowserHeader(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .background(ComposeColor(DarkSurface))
+            .background(DarkSurface)
             .padding(8.dp)
     ) {
         // Path display
@@ -200,14 +200,14 @@ private fun FileBrowserHeader(
             Icon(
                 imageVector = Icons.Default.Folder,
                 contentDescription = null,
-                tint = ComposeColor(DarkWarning),
+                tint = DarkWarning,
                 modifier = Modifier.size(18.dp)
             )
             Spacer(modifier = Modifier.width(6.dp))
             Text(
                 text = currentPath,
                 style = MaterialTheme.typography.titleSmall,
-                color = ComposeColor(DarkTextPrimary),
+                color = DarkTextPrimary,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f)
@@ -225,8 +225,8 @@ private fun FileBrowserHeader(
             FilledTonalButton(
                 onClick = onPickDirectory,
                 colors = ButtonDefaults.filledTonalButtonColors(
-                    containerColor = ComposeColor(DarkSurfaceVariant),
-                    contentColor = ComposeColor(DarkTextPrimary)
+                    containerColor = DarkSurfaceVariant,
+                    contentColor = DarkTextPrimary
                 ),
                 modifier = Modifier.height(32.dp)
             ) {
@@ -243,8 +243,8 @@ private fun FileBrowserHeader(
             FilledTonalButton(
                 onClick = onNewFile,
                 colors = ButtonDefaults.filledTonalButtonColors(
-                    containerColor = ComposeColor(DarkSurfaceVariant),
-                    contentColor = ComposeColor(DarkTextPrimary)
+                    containerColor = DarkSurfaceVariant,
+                    contentColor = DarkTextPrimary
                 ),
                 modifier = Modifier.height(32.dp)
             ) {
@@ -261,8 +261,8 @@ private fun FileBrowserHeader(
             FilledTonalButton(
                 onClick = onNewFolder,
                 colors = ButtonDefaults.filledTonalButtonColors(
-                    containerColor = ComposeColor(DarkSurfaceVariant),
-                    contentColor = ComposeColor(DarkTextPrimary)
+                    containerColor = DarkSurfaceVariant,
+                    contentColor = DarkTextPrimary
                 ),
                 modifier = Modifier.height(32.dp)
             ) {
@@ -283,7 +283,7 @@ private fun FileBrowserHeader(
                 Icon(
                     Icons.Default.Refresh,
                     contentDescription = "Refresh",
-                    tint = ComposeColor(DarkTextSecondary),
+                    tint = DarkTextSecondary,
                     modifier = Modifier.size(20.dp)
                 )
             }
@@ -306,7 +306,7 @@ private fun StorageAccessPrompt(
             Icon(
                 imageVector = Icons.Outlined.FolderOpen,
                 contentDescription = null,
-                tint = ComposeColor(DarkTextSecondary),
+                tint = DarkTextSecondary,
                 modifier = Modifier.size(64.dp)
             )
 
@@ -315,7 +315,7 @@ private fun StorageAccessPrompt(
             Text(
                 text = "No Directory Selected",
                 style = MaterialTheme.typography.titleLarge,
-                color = ComposeColor(DarkTextPrimary)
+                color = DarkTextPrimary
             )
 
             Spacer(modifier = Modifier.height(8.dp))
@@ -323,7 +323,7 @@ private fun StorageAccessPrompt(
             Text(
                 text = "Tap the button below to select a working directory.\nTerminalCode will have read/write access to it.",
                 style = MaterialTheme.typography.bodyMedium,
-                color = ComposeColor(DarkTextSecondary),
+                color = DarkTextSecondary,
                 modifier = Modifier.padding(horizontal = 16.dp)
             )
 
@@ -332,8 +332,8 @@ private fun StorageAccessPrompt(
             Button(
                 onClick = onPickDirectory,
                 colors = ButtonDefaults.buttonColors(
-                    containerColor = ComposeColor(DarkAccent),
-                    contentColor = ComposeColor.White
+                    containerColor = DarkAccent,
+                    contentColor    = Color.White
                 )
             ) {
                 Icon(
@@ -368,8 +368,8 @@ private fun FileListItem(
             modifier = Modifier
                 .size(36.dp)
                 .background(
-                    color = if (isDirectory) ComposeColor(DarkAccentMuted).copy(alpha = 0.15f)
-                    else ComposeColor(DarkSurfaceVariant),
+                    color = if (isDirectory) DarkAccentMuted.copy(alpha = 0.15f)
+                    else DarkSurfaceVariant,
                     shape = RoundedCornerShape(8.dp)
                 ),
             contentAlignment = Alignment.Center
@@ -377,8 +377,8 @@ private fun FileListItem(
             Icon(
                 imageVector = icon,
                 contentDescription = null,
-                tint = if (isDirectory) ComposeColor(DarkWarning)
-                else ComposeColor(DarkAccent),
+                tint = if (isDirectory) DarkWarning
+                else DarkAccent,
                 modifier = Modifier.size(20.dp)
             )
         }
@@ -389,14 +389,14 @@ private fun FileListItem(
             Text(
                 text = name,
                 style = MaterialTheme.typography.bodyMedium,
-                color = ComposeColor(DarkTextPrimary),
+                color = DarkTextPrimary,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
             Text(
                 text = subtitle,
                 style = MaterialTheme.typography.labelSmall,
-                color = ComposeColor(DarkTextSecondary),
+                color = DarkTextSecondary,
                 maxLines = 1
             )
         }
@@ -406,7 +406,7 @@ private fun FileListItem(
             Icon(
                 imageVector = Icons.Default.ChevronRight,
                 contentDescription = null,
-                tint = ComposeColor(DarkTextSecondary),
+                tint = DarkTextSecondary,
                 modifier = Modifier.size(20.dp)
             )
         }
@@ -423,9 +423,9 @@ private fun CreateFileDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        containerColor = ComposeColor(DarkSurface),
-        titleContentColor = ComposeColor(DarkTextPrimary),
-        textContentColor = ComposeColor(DarkTextSecondary),
+        containerColor = DarkSurface,
+        titleContentColor = DarkTextPrimary,
+        textContentColor = DarkTextSecondary,
         title = {
             Text(title, style = MaterialTheme.typography.titleLarge)
         },
@@ -436,12 +436,12 @@ private fun CreateFileDialog(
                 label = { Text("Name") },
                 singleLine = true,
                 colors = OutlinedTextFieldDefaults.colors(
-                    focusedBorderColor = ComposeColor(DarkAccent),
-                    unfocusedBorderColor = ComposeColor(DarkBorder),
-                    focusedLabelColor = ComposeColor(DarkAccent),
-                    cursorColor = ComposeColor(DarkAccent),
-                    focusedTextColor = ComposeColor(DarkTextPrimary),
-                    unfocusedTextColor = ComposeColor(DarkTextPrimary)
+                    focusedBorderColor = DarkAccent,
+                    unfocusedBorderColor = DarkBorder,
+                    focusedLabelColor = DarkAccent,
+                    cursorColor = DarkAccent,
+                    focusedTextColor = DarkTextPrimary,
+                    unfocusedTextColor = DarkTextPrimary
                 ),
                 modifier = Modifier.fillMaxWidth()
             )
@@ -451,7 +451,7 @@ private fun CreateFileDialog(
                 onClick = { onCreate(fileName) },
                 enabled = fileName.isNotBlank(),
                 colors = ButtonDefaults.buttonColors(
-                    containerColor = ComposeColor(DarkAccent)
+                    containerColor = DarkAccent
                 )
             ) {
                 Text("Create")
@@ -459,7 +459,7 @@ private fun CreateFileDialog(
         },
         dismissButton = {
             TextButton(onClick = onDismiss) {
-                Text("Cancel", color = ComposeColor(DarkTextSecondary))
+                Text("Cancel", color = DarkTextSecondary)
             }
         }
     )

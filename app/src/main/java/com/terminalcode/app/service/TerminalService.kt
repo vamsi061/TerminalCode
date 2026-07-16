@@ -73,7 +73,7 @@ class TerminalService : Service() {
         return NotificationCompat.Builder(this, TerminalCodeApp.TERMINAL_SERVICE_CHANNEL_ID)
             .setContentTitle("TerminalCode")
             .setContentText("Terminal session is running")
-            .setSmallIcon(android.R.drawable.ic_menu_console)
+            .setSmallIcon(android.R.drawable.ic_dialog_info)
             .setContentIntent(pendingIntent)
             .setOngoing(true)
             .setPriority(NotificationCompat.PRIORITY_LOW)
