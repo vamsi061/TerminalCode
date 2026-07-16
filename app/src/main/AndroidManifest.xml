@@ -2,13 +2,8 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
-    <!-- Required for xterm.js WebView to load from local assets -->
-    <uses-permission android:name="android.permission.INTERNET" />
-
-    <!-- Permissions for terminal foreground service -->
+    <!-- Permissions for terminal -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
-    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <application
         android:name=".TerminalCodeApp"
@@ -18,7 +13,6 @@
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
         android:theme="@style/Theme.TerminalCode"
-        android:usesCleartextTraffic="true"
         tools:targetApi="34">
 
         <activity
@@ -32,11 +26,7 @@
             </intent-filter>
         </activity>
 
-        <!-- Terminal foreground service -->
-        <service
-            android:name=".service.TerminalService"
-            android:exported="false"
-            android:foregroundServiceType="specialUse" />
+
 
     </application>
 </manifest>

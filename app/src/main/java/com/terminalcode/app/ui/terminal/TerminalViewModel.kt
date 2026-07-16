@@ -2,22 +2,19 @@ package com.terminalcode.app.ui.terminal
 
 import android.app.Application
 import android.util.Log
-import android.webkit.WebView
 import androidx.lifecycle.AndroidViewModel
-import androidx.lifecycle.viewModelScope
-import com.terminalcode.app.terminal.TerminalSession
-import com.terminalcode.app.terminal.TerminalWebViewBridge
+import com.termux.terminal.TerminalSession
+import com.termux.terminal.TerminalSessionClient
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.stateIn
-import kotlinx.coroutines.launch
 import java.util.UUID
 
 /**
- * ViewModel for managing terminal sessions.
+ * ViewModel that manages terminal sessions using Termux's TerminalSession.
+ *
+ * Uses the battle-tested Termux terminal-emulator library with JNI-based PTY,
+ * providing a real TTY for the shell (proper prompt, job control, etc.).
  */
 class TerminalViewModel(application: Application) : AndroidViewModel(application) {
 
@@ -28,10 +25,8 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
     data class TerminalTab(
         val id: String = UUID.randomUUID().toString(),
         val title: String = "Terminal",
-        val session: TerminalSession,
-        val bridge: TerminalWebViewBridge? = null,
-        var webView: WebView? = null,
-        var lastSentLength: Int = 0
+        val session: TerminalSession? = null,
+        val isRunning: Boolean = false
     )
 
     private val _tabs = MutableStateFlow<List<TerminalTab>>(emptyList())
@@ -40,100 +35,144 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
     private val _activeTabId = MutableStateFlow<String?>(null)
     val activeTabId: StateFlow<String?> = _activeTabId.asStateFlow()
 
-    val activeTab: StateFlow<TerminalTab?> = combine(
-        _tabs, _activeTabId
-    ) { tabs, activeId ->
-        tabs.find { it.id == activeId }
-    }.stateIn(
-        scope = viewModelScope,
-        started = SharingStarted.WhileSubscribed(5000),
-        initialValue = null
-    )
-
     init {
         createNewTab()
     }
 
     /**
-     * Creates a new terminal session tab with its own shell process.
+     * Finds the best available shell on the device.
+     */
+    private fun findShell(): String {
+        val shellPaths = listOfNotNull(
+            System.getenv("SHELL"),
+            "/data/data/com.termux/files/usr/bin/bash",
+            "/bin/bash", "/usr/bin/bash",
+            "/system/bin/sh"
+        )
+        for (path in shellPaths) {
+            if (path.isNotEmpty() && java.io.File(path).exists() && java.io.File(path).canExecute()) {
+                Log.d(TAG, "Using shell: $path")
+                return path
+            }
+        }
+        return "/system/bin/sh"
+    }
+
+    /**
+     * Creates environment variables for the terminal session.
+     */
+    private fun createEnvironment(shell: String): Array<String> {
+        val path = listOfNotNull(
+            System.getenv("PATH"),
+            "/usr/local/sbin:/usr/local/bin",
+            "/usr/sbin:/usr/bin",
+            "/sbin:/bin",
+            "/data/data/com.termux/files/usr/bin",
+            "/system/bin", "/system/xbin"
+        ).joinToString(":")
+
+        val user = System.getenv("USER") ?: "shell"
+        val home = System.getenv("HOME") ?: "/data/data/com.terminalcode.app/files/home"
+
+        return arrayOf(
+            "TERM=xterm-256color",
+            "HOME=$home",
+            "SHELL=$shell",
+            "USER=$user",
+            "LOGNAME=$user",
+            "LANG=en_US.UTF-8",
+            "PATH=$path"
+        )
+    }
+
+    /**
+     * Creates a new terminal tab with a real PTY-backed shell session.
      */
     fun createNewTab(): TerminalTab {
-        val session = TerminalSession()
-        val bridge = TerminalWebViewBridge(session)
+        val shell = findShell()
+        val env = createEnvironment(shell)
+        val args = arrayOf(shell)
+
+        val session = TerminalSession(
+            shell,
+            null,
+            args,
+            env,
+            null,
+            object : TerminalSessionClient {
+                override fun onTextChanged(changedSession: TerminalSession?) {
+                    // TerminalView handles rendering
+                }
+
+                override fun onTitleChanged(changedSession: TerminalSession?) {
+                    val title = changedSession?.getTitle() ?: "Terminal"
+                    _tabs.value = _tabs.value.map { tab ->
+                        if (tab.session == changedSession) tab.copy(title = title)
+                        else tab
+                    }
+                }
+
+                override fun onSessionFinished(finishedSession: TerminalSession?) {
+                    Log.d(TAG, "Session finished")
+                    _tabs.value = _tabs.value.map { tab ->
+                        if (tab.session == finishedSession) tab.copy(isRunning = false)
+                        else tab
+                    }
+                }
+
+                override fun onCopyTextToClipboard(session: TerminalSession?, text: String?) {
+                    // Handled by TerminalView
+                }
+
+                override fun onPasteTextFromClipboard(session: TerminalSession?) {
+                    // Handled by TerminalView
+                }
+
+                override fun onBell(session: TerminalSession?) { }
+
+                override fun onColorsChanged(session: TerminalSession?) { }
+
+                override fun onTerminalCursorStateChange(state: Boolean) { }
+
+                override fun getTerminalCursorStyle(): Int? = null
+
+                override fun logInfo(tag: String?, message: String?) {
+                    Log.d(tag ?: TAG, message ?: "")
+                }
+
+                override fun logWarn(tag: String?, message: String?) {
+                    Log.w(tag ?: TAG, message ?: "")
+                }
+
+                override fun logDebug(tag: String?, message: String?) {
+                    Log.d(tag ?: TAG, message ?: "")
+                }
+
+                override fun logError(tag: String?, message: String?) {
+                    Log.e(tag ?: TAG, message ?: "")
+                }
+
+                override fun logVerbose(tag: String?, message: String?) { }
+
+                override fun logStackTraceWithMessage(tag: String?, message: String?, e: Exception?) {
+                    Log.e(tag ?: TAG, "$message", e)
+                }
+
+                override fun logStackTrace(tag: String?, e: Exception?) {
+                    Log.e(tag ?: TAG, "Stack trace", e)
+                }
+            }
+        )
 
         val tab = TerminalTab(
             session = session,
-            bridge = bridge
+            isRunning = true
         )
 
         _tabs.value = _tabs.value + tab
         _activeTabId.value = tab.id
 
-        // Start session and route output to WebView
-        viewModelScope.launch {
-            session.start()
-
-            // Observe output - send only NEW data each time
-            session.output.collect { fullOutput ->
-                val currentTab = _tabs.value.find { it.id == tab.id } ?: return@collect
-                val wv = currentTab.webView
-                val sent = currentTab.lastSentLength
-
-                // Get only the new data since last send
-                if (fullOutput.length > sent) {
-                    val newData = fullOutput.substring(sent)
-
-                    if (newData.isNotEmpty()) {
-                        if (wv != null) {
-                            // Only advance when actually sent to WebView
-                            _tabs.value = _tabs.value.map {
-                                if (it.id == tab.id) it.copy(lastSentLength = fullOutput.length)
-                                else it
-                            }
-                            wv.post {
-                                wv.evaluateJavascript(
-                                    bridge.getBatchScript(newData),
-                                    null
-                                )
-                            }
-                        }
-                        // If wv is null, lastSentLength stays unchanged
-                        // Data will be re-sent on next collect when WebView registers
-                    }
-                }
-            }
-        }
-
         return tab
-    }
-
-    /**
-     * Registers a WebView with a tab. Flushes any buffered output
-     * that arrived before the WebView was ready.
-     */
-    fun registerWebView(tabId: String, webView: WebView) {
-        val oldTab = _tabs.value.find { it.id == tabId } ?: return
-        val totalOutput = oldTab.session.output.value
-        val alreadySent = oldTab.lastSentLength
-        val unsentData = if (totalOutput.length > alreadySent)
-            totalOutput.substring(alreadySent) else ""
-
-        // Single atomic update: set WebView + advance lastSentLength
-        _tabs.value = _tabs.value.map { t ->
-            if (t.id == tabId) t.copy(
-                webView = webView,
-                lastSentLength = totalOutput.length
-            ) else t
-        }
-
-        if (unsentData.isNotEmpty()) {
-            webView.post {
-                webView.evaluateJavascript(
-                    oldTab.bridge?.getBatchScript(unsentData) ?: "",
-                    null
-                )
-            }
-        }
     }
 
     fun switchTab(tabId: String) {
@@ -142,8 +181,7 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
 
     fun closeTab(tabId: String) {
         val tab = _tabs.value.find { it.id == tabId } ?: return
-        tab.session.stop()
-        tab.webView?.destroy()
+        tab.session?.finishIfRunning()
 
         _tabs.value = _tabs.value.filter { it.id != tabId }
 
@@ -156,16 +194,25 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
-    fun writeToActiveSession(input: String) {
+    fun sendCtrlC() {
         val tab = _tabs.value.find { it.id == _activeTabId.value } ?: return
-        tab.session.writeInput(input)
+        tab.session?.writeCodePoint(false, 3) // Ctrl+C = 0x03
+    }
+
+    fun sendCtrlD() {
+        val tab = _tabs.value.find { it.id == _activeTabId.value } ?: return
+        tab.session?.writeCodePoint(false, 4) // Ctrl+D = 0x04
+    }
+
+    fun sendTab() {
+        val tab = _tabs.value.find { it.id == _activeTabId.value } ?: return
+        tab.session?.writeCodePoint(false, 9) // Tab = 0x09
     }
 
     override fun onCleared() {
         super.onCleared()
         _tabs.value.forEach { tab ->
-            tab.session.stop()
-            tab.webView?.destroy()
+            tab.session?.finishIfRunning()
         }
     }
 }

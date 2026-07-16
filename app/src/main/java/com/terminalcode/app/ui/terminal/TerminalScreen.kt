@@ -1,14 +1,7 @@
 package com.terminalcode.app.ui.terminal
 
-import android.annotation.SuppressLint
-import android.graphics.Color
-import android.view.MotionEvent
-import android.view.View
+import android.view.KeyEvent
 import android.view.ViewGroup
-import android.view.inputmethod.InputMethodManager
-import android.webkit.WebChromeClient
-import android.webkit.WebView
-import android.webkit.WebViewClient
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -19,22 +12,23 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import com.terminalcode.app.terminal.TerminalWebViewBridge
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import com.termux.view.TerminalView
 import com.terminalcode.app.ui.theme.*
 
 /**
- * Terminal screen with WebView-based xterm.js terminal.
+ * Terminal screen using Termux's native TerminalView.
  *
  * Features:
+ * - Real PTY-backed terminal via Termux's JNI terminal emulator
  * - Multiple terminal tabs
  * - Tab management (add/close/switch)
- * - Full xterm.js terminal emulation
+ * - Control toolbar (^C, ^D, Tab, Clear)
  * - GitHub Dark themed UI
  */
 @OptIn(ExperimentalMaterial3Api::class)
-@SuppressLint("SetJavaScriptEnabled")
 @Composable
 fun TerminalScreen(
     viewModel: TerminalViewModel,
@@ -42,6 +36,7 @@ fun TerminalScreen(
 ) {
     val tabs by viewModel.tabs.collectAsState()
     val activeTabId by viewModel.activeTabId.collectAsState()
+    val context = LocalContext.current
 
     Column(
         modifier = modifier
@@ -59,22 +54,91 @@ fun TerminalScreen(
             )
         }
 
-        // Terminal WebView
+        // Terminal View
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(start = 4.dp, end = 4.dp, bottom = 4.dp)
+                .weight(1f)
         ) {
             tabs.forEach { tab ->
-                if (tab.id == activeTabId) {
-                    TerminalWebView(
-                        tab = tab,
-                        viewModel = viewModel,
+                if (tab.id == activeTabId && tab.session != null) {
+                    val session = tab.session
+
+                    // Use Termux's native TerminalView wrapping in AndroidView
+                    AndroidView(
+                        factory = { ctx ->
+                            TerminalView(ctx, null).apply {
+                                layoutParams = ViewGroup.LayoutParams(
+                                    ViewGroup.LayoutParams.MATCH_PARENT,
+                                    ViewGroup.LayoutParams.MATCH_PARENT
+                                )
+
+                                // Set up the terminal client (TerminalViewClient v0.118.3 interface)
+                                setTerminalViewClient(object : com.termux.view.TerminalViewClient {
+                                    override fun onScale(scale: Float): Float = scale
+
+                                    override fun onSingleTapUp(e: android.view.MotionEvent?) {
+                                        requestFocus()
+                                        val imm = ctx.getSystemService(android.content.Context.INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager
+                                        imm.showSoftInput(this@apply, android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT)
+                                    }
+
+                                    override fun shouldBackButtonBeMappedToEscape(): Boolean = true
+                                    override fun shouldEnforceCharBasedInput(): Boolean = true
+                                    override fun shouldUseCtrlSpaceWorkaround(): Boolean = false
+                                    override fun isTerminalViewSelected(): Boolean = true
+                                    override fun copyModeChanged(copyMode: Boolean) { }
+
+                                    override fun onKeyDown(keyCode: Int, e: KeyEvent?, session: com.termux.terminal.TerminalSession?): Boolean = false
+                                    override fun onKeyUp(keyCode: Int, e: KeyEvent?): Boolean = false
+
+                                    override fun onLongPress(event: android.view.MotionEvent?): Boolean = false
+
+                                    override fun readControlKey(): Boolean = false
+                                    override fun readAltKey(): Boolean = false
+                                    override fun readShiftKey(): Boolean = false
+                                    override fun readFnKey(): Boolean = false
+
+                                    override fun onCodePoint(codePoint: Int, ctrlDown: Boolean, session: com.termux.terminal.TerminalSession?): Boolean = false
+                                    override fun onEmulatorSet() { }
+
+                                    override fun logInfo(tag: String?, message: String?) {
+                                        android.util.Log.d(tag ?: "TerminalView", message ?: "")
+                                    }
+                                    override fun logWarn(tag: String?, message: String?) {
+                                        android.util.Log.w(tag ?: "TerminalView", message ?: "")
+                                    }
+                                    override fun logDebug(tag: String?, message: String?) {
+                                        android.util.Log.d(tag ?: "TerminalView", message ?: "")
+                                    }
+                                    override fun logError(tag: String?, message: String?) {
+                                        android.util.Log.e(tag ?: "TerminalView", message ?: "")
+                                    }
+                                    override fun logVerbose(tag: String?, message: String?) { }
+                                    override fun logStackTraceWithMessage(tag: String?, message: String?, e: Exception?) { }
+                                    override fun logStackTrace(tag: String?, e: Exception?) { }
+                                })
+
+                                // Attach the session - this connects PTY to the view
+                                // attachSession() -> updateSize() -> session.updateSize() -> initializeEmulator()
+                                // creating the PTY via JNI. The emulator will be properly resized
+                                // when the view layout happens (onLayout -> updateSize).
+                                attachSession(session)
+                            }
+                        },
                         modifier = Modifier.fillMaxSize()
                     )
                 }
             }
         }
+
+        // Control toolbar
+        TerminalToolbar(
+            onCtrlC = { viewModel.sendCtrlC() },
+            onCtrlD = { viewModel.sendCtrlD() },
+            onTab = { viewModel.sendTab() },
+            modifier = Modifier.fillMaxWidth()
+        )
     }
 }
 
@@ -93,7 +157,7 @@ private fun TerminalTabBar(
             .padding(horizontal = 4.dp, vertical = 2.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        // Tab list (scrollable)
+        // Tab list
         Row(
             modifier = Modifier
                 .weight(1f)
@@ -113,7 +177,6 @@ private fun TerminalTabBar(
                         verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier.padding(start = 10.dp, end = 4.dp)
                     ) {
-                        // Tab title
                         Text(
                             text = tab.title,
                             style = MaterialTheme.typography.labelMedium,
@@ -121,10 +184,7 @@ private fun TerminalTabBar(
                             else DarkTextSecondary,
                             maxLines = 1
                         )
-
                         Spacer(modifier = Modifier.width(4.dp))
-
-                        // Close button (not for last tab)
                         if (tabs.size > 1) {
                             IconButton(
                                 onClick = { onTabClose(tab.id) },
@@ -155,74 +215,51 @@ private fun TerminalTabBar(
                 modifier = Modifier.size(20.dp)
             )
         }
-
     }
 }
 
-@SuppressLint("SetJavaScriptEnabled")
 @Composable
-private fun TerminalWebView(
-    tab: TerminalViewModel.TerminalTab,
-    viewModel: TerminalViewModel,
+private fun TerminalToolbar(
+    onCtrlC: () -> Unit,
+    onCtrlD: () -> Unit,
+    onTab: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val bridge = tab.bridge ?: return
+    Surface(
+        modifier = modifier,
+        color = DarkSurface,
+        shadowElevation = 4.dp
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 8.dp, vertical = 4.dp),
+            horizontalArrangement = Arrangement.SpaceEvenly,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            ToolbarButton("^C", "Send Ctrl+C (interrupt)", onClick = onCtrlC)
+            ToolbarButton("^D", "Send Ctrl+D (EOF)", onClick = onCtrlD)
+            ToolbarButton("Tab", "Send Tab", onClick = onTab)
+        }
+    }
+}
 
-    AndroidView(
-        factory = { context ->
-            WebView(context).apply {
-                layoutParams = ViewGroup.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT,
-                    ViewGroup.LayoutParams.MATCH_PARENT
-                )
-                isFocusable = true
-                isFocusableInTouchMode = true
-
-                settings.javaScriptEnabled = true
-                settings.domStorageEnabled = true
-                settings.allowFileAccess = true
-                settings.allowContentAccess = true
-                settings.setSupportMultipleWindows(false)
-                settings.javaScriptCanOpenWindowsAutomatically = false
-                settings.mediaPlaybackRequiresUserGesture = false
-                settings.cacheMode = android.webkit.WebSettings.LOAD_NO_CACHE
-                settings.layoutAlgorithm = android.webkit.WebSettings.LayoutAlgorithm.NARROW_COLUMNS
-                settings.useWideViewPort = true
-                settings.loadWithOverviewMode = true
-                setBackgroundColor(Color.TRANSPARENT)
-
-                addJavascriptInterface(bridge, TerminalWebViewBridge.INTERFACE_NAME)
-
-                // Show soft keyboard when terminal is tapped
-                setOnTouchListener { v, event ->
-                    if (event.action == MotionEvent.ACTION_UP) {
-                        v.requestFocus()
-                        val imm = v.context.getSystemService(android.content.Context.INPUT_METHOD_SERVICE) as InputMethodManager
-                        imm.showSoftInput(v, InputMethodManager.SHOW_IMPLICIT)
-                        // Focus xterm.js terminal
-                        evaluateJavascript("setTimeout(() => { term.focus(); }, 100);", null)
-                    }
-                    true
-                }
-
-                webViewClient = object : WebViewClient() {
-                    override fun onPageFinished(view: WebView?, url: String?) {
-                        super.onPageFinished(view, url)
-                        viewModel.registerWebView(tab.id, this@apply)
-                        requestFocus()
-                        // Focus xterm.js terminal
-                        evaluateJavascript("setTimeout(() => { term.focus(); }, 200);", null)
-                        // Show keyboard
-                        val imm = context.getSystemService(android.content.Context.INPUT_METHOD_SERVICE) as InputMethodManager
-                        imm.showSoftInput(this@apply, InputMethodManager.SHOW_IMPLICIT)
-                    }
-                }
-
-                webChromeClient = object : WebChromeClient() {}
-
-                loadUrl("file:///android_asset/terminal/index.html")
-            }
-        },
-        modifier = modifier
-    )
+@Composable
+private fun ToolbarButton(
+    text: String,
+    description: String,
+    onClick: () -> Unit
+) {
+    Surface(
+        onClick = onClick,
+        shape = RoundedCornerShape(6.dp),
+        color = DarkSurfaceVariant
+    ) {
+        Text(
+            text = text,
+            style = MaterialTheme.typography.labelMedium,
+            color = DarkTextPrimary,
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+        )
+    }
 }

@@ -80,11 +80,12 @@ dependencies {
     // SAF DocumentFile support
     implementation("androidx.documentfile:documentfile:1.0.1")
 
-    // WebView (included by default, but explicit for clarity)
-    implementation("androidx.webkit:webkit:1.10.0")
-
     // Kotlin Coroutines
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
+
+    // Termux terminal emulator with JNI PTY support
+    implementation("com.github.termux.termux-app:terminal-emulator:v0.118.3")
+    implementation("com.github.termux.termux-app:terminal-view:v0.118.3")
 
     // Testing
     testImplementation("junit:junit:4.13.2")
