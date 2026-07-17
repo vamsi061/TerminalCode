@@ -90,7 +90,6 @@ class TerminalViewModel : ViewModel() {
                 } else {
                     // No Ubuntu found, create a normal tab instead
                     Log.d(TAG, "Ubuntu not installed, starting normal shell")
-                    pb.command("/system/bin/sh", "-i")
                     return createNewTab(launchUbuntu = false)
                 }
             } else {
