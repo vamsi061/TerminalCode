@@ -8,9 +8,9 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import java.io.*
 import java.util.UUID
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.LinkedBlockingQueue
 
 /**
@@ -19,16 +19,12 @@ import java.util.concurrent.LinkedBlockingQueue
  * This has ZERO JNI dependencies - no native libraries are loaded.
  * The shell runs as a subprocess with stdin/stdout connected via pipes.
  * All terminal emulation is done in pure Kotlin.
- *
- * Advantages:
- * - No native code = no UnsatisfiedLinkError crashes
- * - Works on ALL Android devices
- * - Simple, easy to debug
  */
 class TerminalViewModel : ViewModel() {
 
     companion object {
         private const val TAG = "TerminalViewModel"
+        private val ESC = 27.toChar()
     }
 
     data class TerminalTab(
@@ -46,8 +42,7 @@ class TerminalViewModel : ViewModel() {
     private val _activeTabId = MutableStateFlow<String?>(null)
     val activeTabId: StateFlow<String?> = _activeTabId.asStateFlow()
 
-    // Input queue per tab for writing to process stdin
-    private val inputQueues = mutableMapOf<String, LinkedBlockingQueue<ByteArray>>()
+    private val inputQueues = ConcurrentHashMap<String, LinkedBlockingQueue<ByteArray>>()
 
     init {
         try {
@@ -57,15 +52,10 @@ class TerminalViewModel : ViewModel() {
         }
     }
 
-    /**
-     * Finds the best available shell on the device.
-     */
     private fun findShell(): String {
         val shellPaths = listOf(
-            "/system/bin/sh",
-            "/bin/sh",
-            "/system/bin/bash",
-            "/bin/bash"
+            "/system/bin/sh", "/bin/sh",
+            "/system/bin/bash", "/bin/bash"
         )
         for (path in shellPaths) {
             if (File(path).exists() && File(path).canExecute()) {
@@ -73,14 +63,11 @@ class TerminalViewModel : ViewModel() {
                 return path
             }
         }
-        // Fallback - /system/bin/sh exists on virtually all Android devices
         return "/system/bin/sh"
     }
 
-    /**
-     * Creates environment variables for the shell process.
-     */
     private fun createEnvironment(shell: String): Array<String> {
+        val esc = ESC
         return arrayOf(
             "TERM=xterm-256color",
             "HOME=/data/data/com.terminalcode.app/files",
@@ -89,13 +76,10 @@ class TerminalViewModel : ViewModel() {
             "LOGNAME=shell",
             "LANG=en_US.UTF-8",
             "PATH=/system/bin:/system/xbin:/sbin:/bin:/usr/bin:/usr/sbin",
-            "PS1=\\[\\e[1;32m\\]TerminalCode\\[\\e[0m\\]:\\[\\e[1;34m\\]\\w\\[\\e[0m\\]\\$ "
+            "PS1=${esc}[1;32mTerminalCode${esc}[0m:${esc}[1;34m\\w${esc}[0m$ "
         )
     }
 
-    /**
-     * Creates a new terminal tab with a PIPE-based shell subprocess.
-     */
     fun createNewTab(): TerminalTab {
         try {
             val shell = findShell()
@@ -119,13 +103,11 @@ class TerminalViewModel : ViewModel() {
                 process = process,
                 isRunning = true,
                 output = "",
-                outputLines = listOf("\u001b[1;32mTerminalCode\u001b[0m v1.0.0\nStarting shell...\n")
+                outputLines = listOf("${ESC}[1;32mTerminalCode${ESC}[0m v1.0.0\nStarting shell...\n")
             )
 
             _tabs.value = _tabs.value + tab
             _activeTabId.value = tab.id
-
-            // Start I/O threads for this tab
             startIoThreads(tab.id, process)
 
             Log.d(TAG, "Tab ${tab.id} created")
@@ -145,16 +127,12 @@ class TerminalViewModel : ViewModel() {
         }
     }
 
-    /**
-     * Starts background threads to read shell output and write user input.
-     */
     private fun startIoThreads(tabId: String, process: Process) {
         val inputStream = process.inputStream
         val outputStream = process.outputStream
         val inputQueue = LinkedBlockingQueue<ByteArray>(100)
         inputQueues[tabId] = inputQueue
 
-        // Output reader thread: reads from process stdout and appends to tab output
         viewModelScope.launch(Dispatchers.IO) {
             try {
                 val reader = BufferedReader(InputStreamReader(inputStream))
@@ -164,14 +142,9 @@ class TerminalViewModel : ViewModel() {
                 while (true) {
                     val bytesRead = reader.read(buffer, 0, buffer.size)
                     if (bytesRead == -1) break
-
                     textBuilder.append(buffer, 0, bytesRead)
                     val text = textBuilder.toString()
-
-                    // Update the tab's output
                     updateTabOutput(tabId, text)
-
-                    // Keep only last 10000 chars for memory
                     if (textBuilder.length > 50000) {
                         textBuilder.delete(0, textBuilder.length - 30000)
                     }
@@ -187,18 +160,13 @@ class TerminalViewModel : ViewModel() {
             }
         }
 
-        // Input writer thread: reads from input queue and writes to process stdin
         viewModelScope.launch(Dispatchers.IO) {
             try {
                 val writer = BufferedWriter(OutputStreamWriter(outputStream))
-
                 while (true) {
                     val data = inputQueue.take()
                     if (data.isEmpty()) continue
-
-                    // Check for special shutdown marker
                     if (data.size == 1 && data[0] == 0x00.toByte()) break
-
                     writer.write(String(data, Charsets.UTF_8))
                     writer.flush()
                 }
@@ -210,44 +178,27 @@ class TerminalViewModel : ViewModel() {
         }
     }
 
-    /**
-     * Updates the output text for a given tab.
-     */
     private fun updateTabOutput(tabId: String, newText: String) {
         _tabs.value = _tabs.value.map { tab ->
             if (tab.id == tabId) {
                 val combined = tab.output + newText
-                // Keep last 50000 chars
-                val truncated = if (combined.length > 50000) {
-                    combined.takeLast(50000)
-                } else combined
-
-                // Split into lines for display (last 500 lines)
+                val truncated = if (combined.length > 50000) combined.takeLast(50000) else combined
                 val lines = truncated.split("\n").takeLast(500)
-
                 tab.copy(output = truncated, outputLines = lines)
             } else tab
         }
     }
 
-    /**
-     * Updates the running state of a tab.
-     */
     private fun updateTabRunning(tabId: String, isRunning: Boolean) {
         _tabs.value = _tabs.value.map { tab ->
-            if (tab.id == tabId) tab.copy(isRunning = isRunning)
-            else tab
+            if (tab.id == tabId) tab.copy(isRunning = isRunning) else tab
         }
     }
 
-    /**
-     * Writes user input to the process stdin.
-     */
     fun writeInput(tabId: String?, text: String) {
         val activeTab = _tabs.value.find { it.id == (tabId ?: _activeTabId.value) } ?: return
         val queue = inputQueues[activeTab.id] ?: return
         if (!activeTab.isRunning) return
-
         try {
             queue.put(text.toByteArray(Charsets.UTF_8))
         } catch (e: Throwable) {
@@ -255,14 +206,10 @@ class TerminalViewModel : ViewModel() {
         }
     }
 
-    /**
-     * Sends a control character to the terminal.
-     */
     private fun sendControlCharacter(codePoint: Int) {
         val tab = _tabs.value.find { it.id == _activeTabId.value } ?: return
         val queue = inputQueues[tab.id] ?: return
         if (!tab.isRunning) return
-
         try {
             queue.put(byteArrayOf(codePoint.toByte()))
         } catch (e: Throwable) {
@@ -270,8 +217,8 @@ class TerminalViewModel : ViewModel() {
         }
     }
 
-    fun sendCtrlC() = sendControlCharacter(3)   // Ctrl+C = 0x03
-    fun sendCtrlD() = sendControlCharacter(4)   // Ctrl+D = 0x04
+    fun sendCtrlC() = sendControlCharacter(3)
+    fun sendCtrlD() = sendControlCharacter(4)
     fun sendTab() = writeInput(null, "\t")
 
     fun switchTab(tabId: String) {
@@ -281,35 +228,19 @@ class TerminalViewModel : ViewModel() {
     fun closeTab(tabId: String) {
         val tab = _tabs.value.find { it.id == tabId } ?: return
         val queue = inputQueues.remove(tabId)
-
-        // Send shutdown marker to input thread
-        try {
-            queue?.put(byteArrayOf(0x00))
-        } catch (_: Throwable) {}
-
-        // Destroy the process
-        tab.process?.let { process ->
-            try {
-                process.destroyForcibly()
-            } catch (_: Throwable) {}
-        }
-
+        try { queue?.put(byteArrayOf(0x00)) } catch (_: Throwable) {}
+        tab.process?.let { p -> try { p.destroyForcibly() } catch (_: Throwable) {} }
         _tabs.value = _tabs.value.filter { it.id != tabId }
-
         if (_activeTabId.value == tabId) {
             _activeTabId.value = _tabs.value.lastOrNull()?.id
         }
-
-        if (_tabs.value.isEmpty()) {
-            createNewTab()
-        }
+        if (_tabs.value.isEmpty()) createNewTab()
     }
 
     fun clearOutput(tabId: String?) {
         val id = tabId ?: _activeTabId.value ?: return
         _tabs.value = _tabs.value.map { tab ->
-            if (tab.id == id) tab.copy(output = "", outputLines = emptyList())
-            else tab
+            if (tab.id == id) tab.copy(output = "", outputLines = emptyList()) else tab
         }
     }
 
@@ -317,11 +248,7 @@ class TerminalViewModel : ViewModel() {
         super.onCleared()
         _tabs.value.forEach { tab ->
             inputQueues.remove(tab.id)
-            tab.process?.let { process ->
-                try {
-                    process.destroyForcibly()
-                } catch (_: Throwable) {}
-            }
+            tab.process?.let { p -> try { p.destroyForcibly() } catch (_: Throwable) {} }
         }
         inputQueues.clear()
     }

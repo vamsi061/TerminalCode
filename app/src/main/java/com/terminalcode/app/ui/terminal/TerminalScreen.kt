@@ -9,6 +9,9 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
@@ -206,7 +209,6 @@ private fun TerminalInputBar(
 ) {
     var input by remember { mutableStateOf(TextFieldValue("")) }
     var history by remember { mutableStateOf(listOf<String>()) }
-    var historyIndex by remember { mutableIntStateOf(-1) }
 
     Surface(
         modifier = modifier,
@@ -247,6 +249,17 @@ private fun TerminalInputBar(
                     .weight(1f)
                     .padding(vertical = 4.dp),
                 singleLine = true,
+                keyboardActions = KeyboardActions(
+                    onDone = {
+                        val text = input.text.trim()
+                        if (text.isNotEmpty()) {
+                            onSend("$text\n")
+                            history = (history + text).takeLast(100)
+                            input = TextFieldValue("")
+                        }
+                    }
+                ),
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Go),
                 decorationBox = { innerTextField ->
                     Box {
                         if (input.text.isEmpty()) {
@@ -267,29 +280,28 @@ private fun TerminalInputBar(
             // Send button
             Surface(
                 onClick = {
-                    val text = input.text.trim()
-                    if (text.isNotEmpty()) {
-                        onSend("$text\n")
-                        history = (history + text).takeLast(100)
-                        historyIndex = -1
-                        input = TextFieldValue("")
+                            val text = input.text.trim()
+                            if (text.isNotEmpty()) {
+                                onSend("$text\n")
+                                history = (history + text).takeLast(100)
+                                input = TextFieldValue("")
+                            }
+                        },
+                        shape = RoundedCornerShape(4.dp),
+                        color = DarkAccent,
+                        modifier = Modifier.padding(start = 8.dp)
+                    ) {
+                        Text(
+                            text = "↵",
+                            style = TextStyle(
+                                fontFamily = FontFamily.Monospace,
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White
+                            ),
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+                        )
                     }
-                },
-                shape = RoundedCornerShape(4.dp),
-                color = DarkAccent,
-                modifier = Modifier.padding(start = 8.dp)
-            ) {
-                Text(
-                    text = "↵",
-                    style = TextStyle(
-                        fontFamily = FontFamily.Monospace,
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = Color.White
-                    ),
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
-                )
-            }
         }
     }
 }
@@ -306,40 +318,46 @@ private fun parseAnsiText(text: String) = buildAnnotatedString {
 
     while (i < text.length) {
         if (text[i] == '\u001b' && i + 1 < text.length && text[i + 1] == '[') {
-            // Find end of escape sequence
-            val endIdx = text.indexOf('m', i + 2)
+            // Find end of escape sequence (ends with a letter from A-Z or a-z)
+            val endIdx = findAnsiEnd(text, i + 2)
             if (endIdx == -1) {
                 // No complete sequence found, take the rest
                 append(text.substring(i))
                 break
             }
 
-            val params = text.substring(i + 2, endIdx).split(";")
-            for (param in params) {
-                when (param) {
-                    "0", "" -> {
-                        currentColor = defaultColor
-                        isBold = false
+            val cmd = text[endIdx]
+            // Only process SGR sequences (ending with 'm' - color/style commands)
+            if (cmd == 'm') {
+                val params = text.substring(i + 2, endIdx).split(";")
+                for (param in params) {
+                    when (param) {
+                        "0", "" -> {
+                            currentColor = defaultColor
+                            isBold = false
+                        }
+                        "1" -> isBold = true
+                        "30" -> currentColor = DarkTextPrimary
+                        "31" -> currentColor = TerminalRed
+                        "32" -> currentColor = TerminalGreen
+                        "33" -> currentColor = TerminalYellow
+                        "34" -> currentColor = TerminalBlue
+                        "35" -> currentColor = TerminalMagenta
+                        "36" -> currentColor = TerminalCyan
+                        "37" -> currentColor = DarkTextPrimary
+                        "90" -> currentColor = DarkTextSecondary
+                        "91" -> currentColor = TerminalRed
+                        "92" -> currentColor = TerminalGreen
+                        "93" -> currentColor = TerminalYellow
+                        "94" -> currentColor = TerminalBlue
+                        "95" -> currentColor = TerminalMagenta
+                        "96" -> currentColor = TerminalCyan
+                        "97" -> currentColor = DarkTextPrimary
                     }
-                    "1" -> isBold = true
-                    "30" -> currentColor = DarkTextPrimary   // Black -> dark gray
-                    "31" -> currentColor = TerminalRed
-                    "32" -> currentColor = TerminalGreen
-                    "33" -> currentColor = TerminalYellow
-                    "34" -> currentColor = TerminalBlue
-                    "35" -> currentColor = TerminalMagenta
-                    "36" -> currentColor = TerminalCyan
-                    "37" -> currentColor = DarkTextPrimary
-                    "90" -> currentColor = DarkTextSecondary
-                    "91" -> currentColor = TerminalRed
-                    "92" -> currentColor = TerminalGreen
-                    "93" -> currentColor = TerminalYellow
-                    "94" -> currentColor = TerminalBlue
-                    "95" -> currentColor = TerminalMagenta
-                    "96" -> currentColor = TerminalCyan
-                    "97" -> currentColor = DarkTextPrimary
                 }
             }
+            // Non-SGR sequences (cursor movement [A/B/C/D], clear screen [2J], etc.)
+            // are stripped/skipped entirely - they don't render in a text-based terminal
 
             i = endIdx + 1
         } else {
@@ -359,6 +377,25 @@ private fun parseAnsiText(text: String) = buildAnnotatedString {
             i = end
         }
     }
+}
+
+/**
+ * Finds the end of an ANSI escape sequence starting at startIdx.
+ * ANSI sequences end with a letter (A-Z or a-z).
+ */
+private fun findAnsiEnd(text: String, startIdx: Int): Int {
+    var i = startIdx
+    while (i < text.length) {
+        val c = text[i]
+        if (c in 'A'..'Z' || c in 'a'..'z') return i
+        // Numbers, semicolons, and parameter characters are part of the sequence
+        if (c in '0'..'9' || c == ';' || c == '?' || c == '=' || c == '<' || c == '>') {
+            i++
+        } else {
+            return -1 // Unexpected character
+        }
+    }
+    return -1 // Unterminated sequence
 }
 
 @Composable
