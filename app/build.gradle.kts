@@ -56,9 +56,6 @@ android {
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
         }
-        jniLibs {
-            useLegacyPackaging = true
-        }
     }
 }
 
@@ -86,9 +83,8 @@ dependencies {
     // Kotlin Coroutines
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
 
-    // Termux terminal emulator with JNI PTY support
-    implementation("com.github.termux.termux-app:terminal-emulator:v0.118.3")
-    implementation("com.github.termux.termux-app:terminal-view:v0.118.3")
+    // No JNI terminal emulator - using pure PIPE-based ProcessBuilder approach
+    // This avoids all native library crashes and works on all Android devices
 
     // Testing
     testImplementation("junit:junit:4.13.2")
